@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.5", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.6", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -24,6 +24,7 @@ namespace Oxide.Plugins
         private const string PERMISSION_ADMIN = "removertool.admin";
         private const string PERMISSION_NORMAL = "removertool.normal";
         private const string PERMISSION_TARGET = "removertool.target";
+        private const string PERMISSION_EXTERNAL = "removertool.external";
         private const string PERMISSION_OVERRIDE = "removertool.override";
         private const string PERMISSION_STRUCTURE = "removertool.structure";
         private const string PREFAB_ITEM_DROP = "assets/prefabs/misc/item drop/item_drop.prefab";
@@ -35,6 +36,7 @@ namespace Oxide.Plugins
         private bool removeOverride;
         private Coroutine removeAllCoroutine;
         private Coroutine removeStructureCoroutine;
+        private Coroutine removeExternalCoroutine;
 
         private readonly Hash<uint, float> entitySpawnedTimes = new Hash<uint, float>();
         private readonly Hash<ulong, float> cooldownTimes = new Hash<ulong, float>();
@@ -50,9 +52,10 @@ namespace Oxide.Plugins
         private enum RemoveType
         {
             All,
-            Structure,
             Admin,
-            Normal
+            Normal,
+            External,
+            Structure
         }
 
         #endregion Fields
@@ -62,16 +65,19 @@ namespace Oxide.Plugins
         private void Init()
         {
             rt = this;
-            permission.RegisterPermission(PERMISSION_NORMAL, this);
-            permission.RegisterPermission(PERMISSION_ADMIN, this);
-            permission.RegisterPermission(PERMISSION_TARGET, this);
             permission.RegisterPermission(PERMISSION_ALL, this);
-            permission.RegisterPermission(PERMISSION_STRUCTURE, this);
+            permission.RegisterPermission(PERMISSION_ADMIN, this);
+            permission.RegisterPermission(PERMISSION_NORMAL, this);
+            permission.RegisterPermission(PERMISSION_TARGET, this);
             permission.RegisterPermission(PERMISSION_OVERRIDE, this);
+            permission.RegisterPermission(PERMISSION_EXTERNAL, this);
+            permission.RegisterPermission(PERMISSION_STRUCTURE, this);
             cmd.AddChatCommand(configData.chatS.command, this, nameof(CmdRemove));
             foreach (var perm in configData.permissionS.Keys)
+            {
                 if (!permission.PermissionExists(perm, this))
                     permission.RegisterPermission(perm, this);
+            }
             Unsubscribe(nameof(OnEntityDeath));
             Unsubscribe(nameof(OnHammerHit));
             Unsubscribe(nameof(OnEntitySpawned));
@@ -109,6 +115,7 @@ namespace Oxide.Plugins
         {
             if (removeAllCoroutine != null) ServerMgr.Instance.StopCoroutine(removeAllCoroutine);
             if (removeStructureCoroutine != null) ServerMgr.Instance.StopCoroutine(removeStructureCoroutine);
+            if (removeExternalCoroutine != null) ServerMgr.Instance.StopCoroutine(removeExternalCoroutine);
             foreach (var player in BasePlayer.activePlayerList)
             {
                 var toolRemover = player.GetComponent<ToolRemover>();
@@ -194,6 +201,8 @@ namespace Oxide.Plugins
         private static string GetRemoveTypeName(RemoveType removeType) => configData.removeTypeS[removeType].displayName;
 
         private static void DropItemContainer(ItemContainer itemContainer, Vector3 dropPosition, Quaternion rotation) => itemContainer?.Drop(PREFAB_ITEM_DROP, dropPosition, rotation);
+
+        private static bool IsExternalWall(StabilityEntity stabilityEntity) => stabilityEntity.ShortPrefabName.Contains("external");
 
         private static bool IsRemovableEntity(BaseEntity entity) => rt.shorPrefabNameToDeployable.ContainsKey(entity.ShortPrefabName) || rt.prefabNameToStructure.ContainsKey(entity.PrefabName) || configData.removeInfo.entityS.ContainsKey(entity.ShortPrefabName);
 
@@ -859,9 +868,8 @@ namespace Oxide.Plugins
         private Dictionary<string, int> GetSlots(BaseEntity targetEntity)
         {
             var slots = new Dictionary<string, int>();
-            foreach (int value in Enum.GetValues(typeof(BaseEntity.Slot)))
+            foreach (BaseEntity.Slot slot in Enum.GetValues(typeof(BaseEntity.Slot)))
             {
-                var slot = (BaseEntity.Slot)value;
                 if (targetEntity.HasSlot(slot))
                 {
                     var s = targetEntity.GetSlot(slot);
@@ -955,6 +963,23 @@ namespace Oxide.Plugins
                 }
                 removeAllCoroutine = ServerMgr.Instance.StartCoroutine(RemoveAll(targetEntity, player));
                 Print(player, Lang("StartRemoveAll", player.UserIDString));
+                return true;
+            }
+            if (removeType == RemoveType.External)
+            {
+                var stabilityEntity = targetEntity.GetComponent<StabilityEntity>();
+                if (stabilityEntity == null || !IsExternalWall(stabilityEntity))
+                {
+                    Print(player, Lang("NotExternalWall", player.UserIDString));
+                    return false;
+                }
+                if (removeExternalCoroutine != null)
+                {
+                    Print(player, Lang("AlreadyRemoveExternal", player.UserIDString));
+                    return false;
+                }
+                removeExternalCoroutine = ServerMgr.Instance.StartCoroutine(RemoveExternal(stabilityEntity, player));
+                Print(player, Lang("StartRemoveExternal", player.UserIDString));
                 return true;
             }
             if (removeType == RemoveType.Structure)
@@ -1197,7 +1222,7 @@ namespace Oxide.Plugins
             int current = 0;
             var checkFrom = new Queue<Vector3>();
             checkFrom.Enqueue(sourceEntity.transform.position);
-            var entities = new HashSet<BaseEntity>() { sourceEntity };
+            var removeList = new HashSet<BaseEntity>() { sourceEntity };
             while (checkFrom.Count > 0)
             {
                 var position = checkFrom.Dequeue();
@@ -1205,32 +1230,56 @@ namespace Oxide.Plugins
                 Vis.Entities(position, 3f, list, LAYER_ALL);
                 foreach (var entity in list)
                 {
-                    if (!entities.Add(entity)) continue;
+                    if (!removeList.Add(entity)) continue;
                     checkFrom.Enqueue(entity.transform.position);
                 }
                 Pool.FreeList(ref list);
                 if (current++ % configData.settings.removePerFrame == 0) yield return CoroutineEx.waitForEndOfFrame;
             }
-            var removeList = new List<BaseEntity>();
             if (configData.settings.noItemContainerDrop)
             {
-                foreach (var entity in entities)
-                    if (entity is StorageContainer || entity is ContainerIOEntity) removeList.Add(entity);
-                foreach (var entity in entities)
-                    if (!(entity is StorageContainer) && !(entity is ContainerIOEntity)) removeList.Add(entity);
+                var sortList = new HashSet<BaseEntity>();
+                foreach (var entity in removeList)
+                    if (entity is StorageContainer || entity is ContainerIOEntity) sortList.Add(entity);
+                foreach (var entity in removeList)
+                    if (!(entity is StorageContainer) && !(entity is ContainerIOEntity)) sortList.Add(entity);
+                removeList = sortList;
             }
             else
             {
-                foreach (var entity in entities)
+                foreach (var entity in removeList)
                 {
-                    removeList.Add(entity);
                     if (entity is StorageContainer)
                         DropItemContainer((entity as StorageContainer).inventory, entity.GetDropPosition(), entity.transform.rotation);
                     if (entity is ContainerIOEntity)
                         DropItemContainer((entity as ContainerIOEntity).inventory, entity.GetDropPosition(), entity.transform.rotation);
                 }
             }
-            removeAllCoroutine = ServerMgr.Instance.StartCoroutine(DelayRemove(removeList, player, configData.removeTypeS[RemoveType.All].gibs, true));
+            removeAllCoroutine = ServerMgr.Instance.StartCoroutine(DelayRemove(removeList, player, configData.removeTypeS[RemoveType.All].gibs, RemoveType.All));
+            yield break;
+        }
+
+        private IEnumerator RemoveExternal(StabilityEntity sourceEntity, BasePlayer player)
+        {
+            int current = 0;
+            var checkFrom = new Queue<Vector3>();
+            checkFrom.Enqueue(sourceEntity.transform.position);
+            var removeList = new HashSet<BaseEntity>() { sourceEntity };
+            while (checkFrom.Count > 0)
+            {
+                var position = checkFrom.Dequeue();
+                var list = Pool.GetList<StabilityEntity>();
+                Vis.Entities(position, 5f, list, Rust.Layers.Mask.Construction);
+                foreach (var entity in list)
+                {
+                    if (!IsExternalWall(entity)) continue;
+                    if (!removeList.Add(entity)) continue;
+                    checkFrom.Enqueue(entity.transform.position);
+                }
+                Pool.FreeList(ref list);
+                if (current++ % configData.settings.removePerFrame == 0) yield return CoroutineEx.waitForEndOfFrame;
+            }
+            removeExternalCoroutine = ServerMgr.Instance.StartCoroutine(DelayRemove(removeList, player, configData.removeTypeS[RemoveType.External].gibs, RemoveType.External));
             yield break;
         }
 
@@ -1258,40 +1307,51 @@ namespace Oxide.Plugins
                 }
             }
             else removeList.Add(decayEntity);
-            removeStructureCoroutine = ServerMgr.Instance.StartCoroutine(DelayRemove(removeList, player, configData.removeTypeS[RemoveType.Structure].gibs));
+            removeStructureCoroutine = ServerMgr.Instance.StartCoroutine(DelayRemove(removeList, player, configData.removeTypeS[RemoveType.Structure].gibs, RemoveType.Structure));
             yield break;
         }
 
-        private IEnumerator DelayRemove(List<BaseEntity> entities, BasePlayer player, bool gibs, bool all = false)
+        private IEnumerator DelayRemove(IEnumerable<BaseEntity> entities, BasePlayer player, bool gibs, RemoveType removeType)
         {
-            for (int i = 0; i < entities.Count; i++)
+            int current = 0;
+            foreach (var entity in entities)
             {
-                DoRemove(entities[i], gibs);
-                if (i % configData.settings.removePerFrame == 0) yield return CoroutineEx.waitForEndOfFrame;
+                if (DoRemove(entity, gibs) && (current++ % configData.settings.removePerFrame == 0))
+                    yield return CoroutineEx.waitForEndOfFrame;
             }
             var toolRemover = player?.GetComponent<ToolRemover>();
-            if (all)
+            switch (removeType)
             {
-                if (toolRemover != null && toolRemover.removeType == RemoveType.All) toolRemover.currentRemoved += entities.Count;
-                if (player != null) Print(player, Lang("CompletedRemoveAll", player.UserIDString, entities.Count));
-                removeAllCoroutine = null;
-            }
-            else
-            {
-                if (toolRemover != null && toolRemover.removeType == RemoveType.Structure) toolRemover.currentRemoved += entities.Count;
-                if (player != null) Print(player, Lang("CompletedRemoveStructure", player.UserIDString, entities.Count));
-                removeStructureCoroutine = null;
+                case RemoveType.All:
+                    if (toolRemover != null && toolRemover.removeType == RemoveType.All) toolRemover.currentRemoved += current;
+                    if (player != null) Print(player, Lang("CompletedRemoveAll", player.UserIDString, current));
+                    removeAllCoroutine = null;
+                    break;
+
+                case RemoveType.Structure:
+                    if (toolRemover != null && toolRemover.removeType == RemoveType.Structure) toolRemover.currentRemoved += current;
+                    if (player != null) Print(player, Lang("CompletedRemoveStructure", player.UserIDString, current));
+                    removeStructureCoroutine = null;
+                    break;
+
+                case RemoveType.External:
+                    if (toolRemover != null && toolRemover.removeType == RemoveType.External) toolRemover.currentRemoved += current;
+                    if (player != null) Print(player, Lang("CompletedRemoveExternal", player.UserIDString, current));
+                    removeExternalCoroutine = null;
+                    break;
             }
             yield break;
         }
 
-        private void DoRemove(BaseEntity entity, bool gibs = true)
+        private bool DoRemove(BaseEntity entity, bool gibs = true)
         {
             if (entity != null && !entity.IsDestroyed)
             {
                 Interface.CallHook("OnRemovedEntity", entity);
                 entity.Kill(gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
+                return true;
             }
+            return false;
         }
 
         #endregion Remove Entity
@@ -1357,6 +1417,17 @@ namespace Oxide.Plugins
                         }
                         break;
 
+                    case "e":
+                    case "external":
+                        removeType = RemoveType.External;
+                        time = configData.removeTypeS[removeType].defaultTime;
+                        if (!permission.UserHasPermission(player.UserIDString, PERMISSION_EXTERNAL))
+                        {
+                            Print(player, Lang("NotAllowed", player.UserIDString, PERMISSION_EXTERNAL));
+                            return;
+                        }
+                        break;
+
                     case "h":
                     case "help":
                         StringBuilder stringBuilder = new StringBuilder();
@@ -1364,6 +1435,7 @@ namespace Oxide.Plugins
                         stringBuilder.AppendLine(Lang("Syntax1", player.UserIDString, configData.chatS.command, GetRemoveTypeName(RemoveType.Admin)));
                         stringBuilder.AppendLine(Lang("Syntax2", player.UserIDString, configData.chatS.command, GetRemoveTypeName(RemoveType.All)));
                         stringBuilder.AppendLine(Lang("Syntax3", player.UserIDString, configData.chatS.command, GetRemoveTypeName(RemoveType.Structure)));
+                        stringBuilder.AppendLine(Lang("Syntax4", player.UserIDString, configData.chatS.command, GetRemoveTypeName(RemoveType.External)));
                         Print(player, stringBuilder.ToString());
                         return;
 
@@ -1469,6 +1541,7 @@ namespace Oxide.Plugins
                 stringBuilder.AppendLine("remove.target <admin | a> <player (name or id)> [time (seconds)] - Enable remover tool for player (Admin)");
                 stringBuilder.AppendLine("remove.target <all> <player (name or id)> [time (seconds)] - Enable remover tool for player (All)");
                 stringBuilder.AppendLine("remove.target <structure | s> <player (name or id)> [time (seconds)] - Enable remover tool for player (Structure)");
+                stringBuilder.AppendLine("remove.target <external | e> <player (name or id)> [time (seconds)] - Enable remover tool for player (External)");
                 Print(arg, stringBuilder.ToString());
                 return;
             }
@@ -1505,6 +1578,11 @@ namespace Oxide.Plugins
                     removeType = RemoveType.Structure;
                     break;
 
+                case "e":
+                case "external":
+                    removeType = RemoveType.External;
+                    break;
+
                 case "d":
                 case "disable":
                     var toolRemover = target.GetComponent<ToolRemover>();
@@ -1524,6 +1602,7 @@ namespace Oxide.Plugins
                     stringBuilder.AppendLine("remove.target <admin | a> <player (name or id)> [time (seconds)] - Enable remover tool for player (Admin)");
                     stringBuilder.AppendLine("remove.target <all> <player (name or id)> [time (seconds)] - Enable remover tool for player (All)");
                     stringBuilder.AppendLine("remove.target <structure | s> <player (name or id)> [time (seconds)] - Enable remover tool for player (Structure)");
+                    stringBuilder.AppendLine("remove.target <external | e> <player (name or id)> [time (seconds)] - Enable remover tool for player (External)");
                     Print(arg, stringBuilder.ToString());
                     return;
             }
@@ -1835,8 +1914,9 @@ namespace Oxide.Plugins
             {
                 [RemoveType.Normal] = new RemoveTypeS { displayName = RemoveType.Normal.ToString(), distance = 3, gibs = true, defaultTime = 60, maxTime = 300, resetTime = false },
                 [RemoveType.Structure] = new RemoveTypeS { displayName = RemoveType.Structure.ToString(), distance = 100, gibs = false, defaultTime = 300, maxTime = 600, resetTime = true },
-                [RemoveType.All] = new RemoveTypeS { displayName = RemoveType.All.ToString(), distance = 100, gibs = false, defaultTime = 300, maxTime = 600, resetTime = true },
+                [RemoveType.All] = new RemoveTypeS { displayName = RemoveType.All.ToString(), distance = 50, gibs = false, defaultTime = 300, maxTime = 600, resetTime = true },
                 [RemoveType.Admin] = new RemoveTypeS { displayName = RemoveType.Admin.ToString(), distance = 20, gibs = true, defaultTime = 300, maxTime = 600, resetTime = true },
+                [RemoveType.External] = new RemoveTypeS { displayName = RemoveType.External.ToString(), distance = 20, gibs = true, defaultTime = 300, maxTime = 600, resetTime = true }
             };
 
             public class RemoveTypeS
@@ -2223,10 +2303,13 @@ namespace Oxide.Plugins
 
                 ["StartRemoveAll"] = "Start running RemoveAll, please wait",
                 ["StartRemoveStructure"] = "Start running RemoveStructure, please wait",
+                ["StartRemoveExternal"] = "Start running RemoveExternal, please wait",
                 ["AlreadyRemoveAll"] = "There is already a RemoveAll running, please wait",
                 ["AlreadyRemoveStructure"] = "There is already a RemoveStructure running, please wait",
+                ["AlreadyRemoveExternal"] = "There is already a RemoveExternal running, please wait",
                 ["CompletedRemoveAll"] = "You've successfully removed {0} entities using RemoveAll",
                 ["CompletedRemoveStructure"] = "You've successfully removed {0} entities using RemoveStructure",
+                ["CompletedRemoveExternal"] = "You've successfully removed {0} entities using RemoveExternal",
 
                 ["CanRemove"] = "You can remove this entity",
                 ["NotEnoughCost"] = "Can't remove: You don't have enough resources.",
@@ -2239,6 +2322,7 @@ namespace Oxide.Plugins
                 ["RaidBlocked"] = "Can't remove: Raid blocked for {0} seconds.",
                 ["NotRemoveAccess"] = "Can't remove: You don't have any rights to remove this.",
                 ["NotStructure"] = "Can't remove: The entity is not a structure.",
+                ["NotExternalWall"] = "Can't remove: The entity is not a external wall.",
                 ["HasStash"] = "Can't remove: There are stashes under the foundation.",
                 ["EntityTimeLimit"] = "Can't remove: The entity was built more than {0} seconds ago.",
                 ["CantPay"] = "Can't remove: Paying system crashed! Contact an administrator with the time and date to help him understand what happened.",
@@ -2256,6 +2340,7 @@ namespace Oxide.Plugins
                 ["Syntax1"] = "<color=#ce422b>/{0} <admin | a> [time (seconds)]</color> - Enable RemoverTool ({1})",
                 ["Syntax2"] = "<color=#ce422b>/{0} <all> [time (seconds)]</color> - Enable RemoverTool ({1})",
                 ["Syntax3"] = "<color=#ce422b>/{0} <structure | s> [time (seconds)]</color> - Enable RemoverTool ({1})",
+                ["Syntax4"] = "<color=#ce422b>/{0} <external | e> [time (seconds)]</color> - Enable RemoverTool ({1})",
             }, this);
 
             lang.RegisterMessages(new Dictionary<string, string>
@@ -2271,10 +2356,13 @@ namespace Oxide.Plugins
 
                 ["StartRemoveAll"] = "开始运行 '所有拆除'，请您等待",
                 ["StartRemoveStructure"] = "开始运行 '建筑拆除'，请您等待",
+                ["StartRemoveExternal"] = "开始运行 '外墙拆除'，请您等待",
                 ["AlreadyRemoveAll"] = "已经有一个 '所有拆除' 正在运行，请您等待",
                 ["AlreadyRemoveStructure"] = "已经有一个 '建筑拆除' 正在运行，请您等待",
+                ["AlreadyRemoveExternal"] = "已经有一个 '外墙拆除' 正在运行，请您等待",
                 ["CompletedRemoveAll"] = "您使用 '所有拆除' 成功拆除了 {0} 个实体",
                 ["CompletedRemoveStructure"] = "您使用 '建筑拆除' 成功拆除了 {0} 个实体",
+                ["CompletedRemoveExternal"] = "您使用 '外墙拆除' 成功拆除了 {0} 个实体",
 
                 ["CanRemove"] = "您可以拆除该实体",
                 ["NotEnoughCost"] = "无法拆除该实体: 拆除所需资源不足",
@@ -2287,6 +2375,7 @@ namespace Oxide.Plugins
                 ["RaidBlocked"] = "无法拆除该实体: 拆除工具被突袭阻止了 {0} 秒",
                 ["NotRemoveAccess"] = "无法拆除该实体: 您无权拆除该实体",
                 ["NotStructure"] = "无法拆除该实体: 该实体不是建筑物",
+                ["NotExternalWall"] = "无法拆除该实体: 该实体不是外高墙",
                 ["HasStash"] = "无法拆除该实体: 地基下藏有小藏匿",
                 ["EntityTimeLimit"] = "无法拆除该实体: 该实体的存活时间大于 {0} 秒",
                 ["CantPay"] = "无法拆除该实体: 支付失败，请联系管理员，告诉他详情",
@@ -2304,6 +2393,7 @@ namespace Oxide.Plugins
                 ["Syntax1"] = "<color=#ce422b>/{0} <admin | a> [time (seconds)]</color> - 启用拆除工具 ({1})",
                 ["Syntax2"] = "<color=#ce422b>/{0} <all> [time (seconds)]</color> - 启用拆除工具 ({1})",
                 ["Syntax3"] = "<color=#ce422b>/{0} <structure | s> [time (seconds)]</color> - 启用拆除工具 ({1})",
+                ["Syntax4"] = "<color=#ce422b>/{0} <external | e> [time (seconds)]</color> - 启用拆除工具 ({1})",
             }, this, "zh-CN");
         }
 
