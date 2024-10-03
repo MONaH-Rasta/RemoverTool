@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.0", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.1", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -24,6 +24,7 @@ namespace Oxide.Plugins
         private const string PERMISSION_TARGET = "removertool.target";
         private const string PERMISSION_OVERRIDE = "removertool.override";
         private const string PERMISSION_STRUCTURE = "removertool.structure";
+        private const string PREFAB_ITEM_DROP = "assets/prefabs/misc/item drop/item_drop.prefab";
         private readonly static int LAYER_PLAYER = LayerMask.GetMask("Player (Server)");
         private readonly static int LAYER_STRUCTURE = LayerMask.GetMask("Construction");
         private readonly static int LAYER_ALL = LayerMask.GetMask("Construction", "Deployed", "Default");
@@ -177,6 +178,8 @@ namespace Oxide.Plugins
         #region Methods
 
         private static string GetRemoveTypeName(RemoveType removeType) => rt.configData.removeTypeS[removeType].displayName;
+
+        private static void DropItemContainer(ItemContainer itemContainer, Vector3 dropPosition, Quaternion rotation) => itemContainer?.Drop(PREFAB_ITEM_DROP, dropPosition, rotation);
 
         public static string GetEntityName(BaseEntity entity)
         {
@@ -595,7 +598,7 @@ namespace Oxide.Plugins
             {
                 var item = player.GetActiveItem();
                 if (item == null) return;
-                var heldEntity = item.GetHeldEntity().GetComponent<HeldEntity>();
+                var heldEntity = item.GetHeldEntity() as HeldEntity;
                 if (heldEntity == null) return;
                 var slot = item.position;
                 item.SetParent(null);
@@ -984,15 +987,21 @@ namespace Oxide.Plugins
                 var storageContainer = targetEntity as StorageContainer;
                 if (storageContainer.inventory?.itemList?.Count > 0)
                 {
-                    if (!configData.settings.removeNotEmptyContainer)
-                    {
-                        Print(player, Lang("StorageNotEmpty", player.UserIDString));
-                        return false;
-                    }
-                    if (configData.settings.dropItemContainer)
-                        storageContainer.DropItems();
-                    else if (configData.settings.dropItemsFromContainer)
+                    if (configData.storageS.dropContainerStorage)
+                        DropItemContainer(storageContainer.inventory, storageContainer.GetDropPosition(), storageContainer.transform.rotation);
+                    else if (configData.storageS.dropItmesStorage)
                         DropUtil.DropItems(storageContainer.inventory, storageContainer.transform.position);
+                }
+            }
+            else if (targetEntity is ContainerIOEntity)
+            {
+                var containerIOEntity = targetEntity as ContainerIOEntity;
+                if (containerIOEntity.inventory?.itemList?.Count > 0)
+                {
+                    if (configData.storageS.dropContainerIOEntity)
+                        DropItemContainer(containerIOEntity.inventory, containerIOEntity.GetDropPosition(), containerIOEntity.transform.rotation);
+                    else if (configData.storageS.dropItmesIOEntity)
+                        DropUtil.DropItems(containerIOEntity.inventory, containerIOEntity.transform.position);
                 }
             }
             if (shouldPay)
@@ -1049,6 +1058,22 @@ namespace Oxide.Plugins
             {
                 reason = Lang("NotEnoughCost", player.UserIDString);
                 return false;
+            }
+            if (!configData.storageS.removeNotEmptyStorage && targetEntity is StorageContainer)
+            {
+                if ((targetEntity as StorageContainer).inventory?.itemList?.Count > 0)
+                {
+                    reason = Lang("StorageNotEmpty", player.UserIDString);
+                    return false;
+                }
+            }
+            if (!configData.storageS.removeNotEmptyIOEntity && targetEntity is ContainerIOEntity)
+            {
+                if ((targetEntity as ContainerIOEntity).inventory?.itemList?.Count > 0)
+                {
+                    reason = Lang("StorageNotEmpty", player.UserIDString);
+                    return false;
+                }
             }
             if (HasAccess(player, targetEntity))
             {
@@ -1216,16 +1241,20 @@ namespace Oxide.Plugins
             {
                 var list1 = new List<BaseEntity>();
                 foreach (var entity in removeList)
-                    if (entity is StorageContainer) list1.Add(entity);
+                    if (entity is StorageContainer || entity is ContainerIOEntity) list1.Add(entity);
                 foreach (var entity in removeList)
-                    if (!(entity is StorageContainer)) list1.Add(entity);
+                    if (!(entity is StorageContainer) && !(entity is ContainerIOEntity)) list1.Add(entity);
                 removeList = list1;
             }
             else
             {
                 foreach (var entity in removeList)
+                {
                     if (entity is StorageContainer)
-                        (entity as StorageContainer).DropItems();
+                        DropItemContainer((entity as StorageContainer).inventory, entity.GetDropPosition(), entity.transform.rotation);
+                    if (entity is ContainerIOEntity)
+                        DropItemContainer((entity as ContainerIOEntity).inventory, entity.GetDropPosition(), entity.transform.rotation);
+                }
             }
             ServerMgr.Instance.StartCoroutine(DelayRemove(removeList, player, configData.removeTypeS[RemoveType.All].gibs, true));
             yield break;
@@ -1253,7 +1282,7 @@ namespace Oxide.Plugins
                     {
                         removeList.Add(decayEntity);
                         if (decayEntity is StorageContainer)
-                            (decayEntity as StorageContainer).DropItems();
+                            DropItemContainer((decayEntity as StorageContainer).inventory, decayEntity.GetDropPosition(), decayEntity.transform.rotation);
                     }
                 }
             }
@@ -1728,20 +1757,35 @@ namespace Oxide.Plugins
                 [JsonProperty(PropertyName = "RemoveType - Normal - Check stash under the foundation")]
                 public bool checkStash = false;
 
-                [JsonProperty(PropertyName = "RemoveType - Normal - Enable remove of not empty storages")]
-                public bool removeNotEmptyContainer = true;
-
-                [JsonProperty(PropertyName = "RemoveType - Normal - Drop items from storage container")]
-                public bool dropItemsFromContainer = false;
-
-                [JsonProperty(PropertyName = "RemoveType - Normal - Drop a item container from storage container")]
-                public bool dropItemContainer = true;
-
                 [JsonProperty(PropertyName = "RemoveType - Normal - Entity Spawned Time Limit - Enabled")]
                 public bool entityTimeLimit = false;
 
                 [JsonProperty(PropertyName = "RemoveType - Normal - Entity Spawned Time Limit - Cannot be removed when entity spawned time more than it")]
                 public float limitTime = 300f;
+            }
+
+            [JsonProperty(PropertyName = "Container Settings")]
+            public StorageS storageS = new StorageS();
+
+            public class StorageS
+            {
+                [JsonProperty(PropertyName = "Storage Container - Enable remove of not empty storages")]
+                public bool removeNotEmptyStorage = true;
+
+                [JsonProperty(PropertyName = "Storage Container - Drop items from container")]
+                public bool dropItmesStorage = false;
+
+                [JsonProperty(PropertyName = "Storage Container - Drop a item container from container")]
+                public bool dropContainerStorage = true;
+
+                [JsonProperty(PropertyName = "IOEntity Container - Enable remove of not empty storages")]
+                public bool removeNotEmptyIOEntity = true;
+
+                [JsonProperty(PropertyName = "IOEntity Container - Drop items from container")]
+                public bool dropItmesIOEntity = false;
+
+                [JsonProperty(PropertyName = "IOEntity Container - Drop a item container from container")]
+                public bool dropContainerIOEntity = true;
             }
 
             [JsonProperty(PropertyName = "Remove Damaged Entities")]
