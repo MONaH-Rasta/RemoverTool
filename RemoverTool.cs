@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.12", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.13", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -617,9 +617,13 @@ namespace Oxide.Plugins
                 activeItem.SetParent(null);
                 rt.timer.Once(0.2f, () =>
                 {
-                    if (activeItem == null) return;
-                    activeItem.position = slot;
-                    activeItem.SetParent(player.inventory.containerBelt);
+                    if (activeItem == null || player == null) return;
+                    if (player.inventory.containerBelt.GetSlot(slot) == null)
+                    {
+                        activeItem.position = slot;
+                        activeItem.SetParent(player.inventory.containerBelt);
+                    }
+                    else player.GiveItem(activeItem);
                 });
             }
 
