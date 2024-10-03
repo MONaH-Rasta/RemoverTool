@@ -11,6 +11,7 @@ using Oxide.Core;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust;
 using Oxide.Game.Rust.Cui;
+using ProtoBuf;
 using Rust;
 using UnityEngine;
 using VLB;
@@ -18,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.37", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.38", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -1842,7 +1843,8 @@ namespace Oxide.Plugins
                             if (currentGrade != null)
                             {
                                 var price = new Dictionary<string, CurrencyInfo>();
-                                foreach (var itemAmount in currentGrade.costToBuild)
+                                var costToBuild = buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade);
+                                foreach (var itemAmount in costToBuild)
                                 {
                                     var amount = Mathf.RoundToInt(itemAmount.amount * buildingGradeSettings.pricePercentage / 100);
                                     if (amount <= 0)
@@ -1860,7 +1862,7 @@ namespace Oxide.Plugins
                             var currentGrade = buildingBlock.currentGrade;
                             if (currentGrade != null)
                             {
-                                return currentGrade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
+                                return buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade).ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
                             }
                         }
                     }
@@ -2208,7 +2210,8 @@ namespace Oxide.Plugins
                             if (currentGrade != null)
                             {
                                 var refund = new Dictionary<string, CurrencyInfo>();
-                                foreach (var itemAmount in currentGrade.costToBuild)
+                                var costToBuild = buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade);
+                                foreach (var itemAmount in costToBuild)
                                 {
                                     var amount = Mathf.RoundToInt(itemAmount.amount * buildingGradeSettings.refundPercentage / 100);
                                     if (amount <= 0)
@@ -2225,7 +2228,7 @@ namespace Oxide.Plugins
                             var currentGrade = buildingBlock.currentGrade;
                             if (currentGrade != null)
                             {
-                                return currentGrade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
+                                return buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade).ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
                             }
                         }
                     }
@@ -3042,8 +3045,9 @@ namespace Oxide.Plugins
                         {
                             foreach (var entry in buildingBlocksSettings.buildingGrade)
                             {
-                                var grade = construction.grades[(int)entry.Key];
-                                entry.Value.price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100)));
+                                var grade = construction.GetGrade(entry.Key, 0);
+                                var costToBuild = grade.CostToBuild(entry.Key);
+                                entry.Value.price = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100)));
                             }
                         }
                     }
@@ -3063,8 +3067,9 @@ namespace Oxide.Plugins
                         {
                             foreach (var entry in buildingBlocksSettings.buildingGrade)
                             {
-                                var grade = construction.grades[(int)entry.Key];
-                                entry.Value.refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100)));
+                                var grade = construction.GetGrade(entry.Key, 0);
+                                var costToBuild = grade.CostToBuild(entry.Key);
+                                entry.Value.refund = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100)));
                             }
                         }
                     }
@@ -3332,12 +3337,12 @@ namespace Oxide.Plugins
                             BuildingGradeSettings>();
                     foreach (var value in buildingGrades)
                     {
-                        var grade =
-                                construction.grades[(int)value];
+                        var grade = construction.GetGrade(value, 0);
+                        var costToBuild = grade.CostToBuild(value);
                         buildingGrade.Add(value, new BuildingGradeSettings
                         {
-                            refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount * 0.4f))),
-                            price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount * 0.6f)))
+                            refund = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount * 0.4f))),
+                            price = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount * 0.6f)))
                         });
                     }
                     buildingBlocksSettings = new BuildingBlocksSettings { displayName = construction.info.name.english, buildingGrade = buildingGrade };
