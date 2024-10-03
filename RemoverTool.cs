@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.19", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.20", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -28,8 +28,7 @@ namespace Oxide.Plugins
         private const string PERMISSION_OVERRIDE = "removertool.override";
         private const string PERMISSION_STRUCTURE = "removertool.structure";
         private const string PREFAB_ITEM_DROP = "assets/prefabs/misc/item drop/item_drop.prefab";
-
-        private const int LAYER_TARGET = ~(1 << 2 | 1 << 3 | 1 << 10 | 1 << 18 | 1 << 28 | 1 << 29);
+        private const int LAYER_TARGET = ~(1 << 2 | 1 << 3 | 1 << 4 | 1 << 10 | 1 << 18 | 1 << 28 | 1 << 29);
         private const int LAYER_ALL = 1 << 8 | 1 << 21;
 
         private static RemoverTool rt;
@@ -728,16 +727,20 @@ namespace Oxide.Plugins
                         float percentage;
                         if (float.TryParse(buildingGradeS.price.ToString(), out percentage))
                         {
-                            var currentGrade = buildingBlock.currentGrade;
-                            if (currentGrade != null)
+                            if (percentage > 0)
                             {
-                                foreach (var itemAmount in currentGrade.costToBuild)
+                                var currentGrade = buildingBlock.currentGrade;
+                                if (currentGrade != null)
                                 {
-                                    var amount = Mathf.RoundToInt(itemAmount.amount * percentage / 100);
-                                    if (amount <= 0) continue;
-                                    price.Add(itemAmount.itemDef.shortname, amount);
+                                    foreach (var itemAmount in currentGrade.costToBuild)
+                                    {
+                                        var amount = Mathf.RoundToInt(itemAmount.amount * percentage / 100);
+                                        if (amount <= 0) continue;
+                                        price.Add(itemAmount.itemDef.shortname, amount);
+                                    }
+
+                                    return price;
                                 }
-                                return price;
                             }
                         }
                         else
@@ -874,16 +877,20 @@ namespace Oxide.Plugins
                         float percentage;
                         if (float.TryParse(buildingGradeS.refund.ToString(), out percentage))
                         {
-                            var currentGrade = buildingblock.currentGrade;
-                            if (currentGrade != null)
+                            if (percentage > 0)
                             {
-                                foreach (var itemAmount in currentGrade.costToBuild)
+                                var currentGrade = buildingblock.currentGrade;
+                                if (currentGrade != null)
                                 {
-                                    var amount = Mathf.RoundToInt(itemAmount.amount * percentage / 100);
-                                    if (amount <= 0) continue;
-                                    refund.Add(itemAmount.itemDef.shortname, amount);
+                                    foreach (var itemAmount in currentGrade.costToBuild)
+                                    {
+                                        var amount = Mathf.RoundToInt(itemAmount.amount * percentage / 100);
+                                        if (amount <= 0) continue;
+                                        refund.Add(itemAmount.itemDef.shortname, amount);
+                                    }
+
+                                    return refund;
                                 }
-                                return refund;
                             }
                         }
                         else
@@ -1831,7 +1838,7 @@ namespace Oxide.Plugins
                             foreach (var entry in buildingBlocksS.buildingGradeS)
                             {
                                 var grade = construction.grades[(int)entry.Key];
-                                entry.Value.price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * value / 100));
+                                entry.Value.price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100));
                             }
                         }
                     }
@@ -1849,7 +1856,7 @@ namespace Oxide.Plugins
                             foreach (var entry in buildingBlocksS.buildingGradeS)
                             {
                                 var grade = construction.grades[(int)entry.Key];
-                                entry.Value.refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * value / 100));
+                                entry.Value.refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100));
                             }
                         }
                     }
@@ -1860,8 +1867,11 @@ namespace Oxide.Plugins
                 case "pricep":
                     if (!float.TryParse(arg.Args[1], out value)) value = 40f;
                     foreach (var buildingBlockS in configData.removeS.buildingBlockS.Values)
+                    {
                         foreach (var data in buildingBlockS.buildingGradeS.Values)
-                            data.price = value;
+                            data.price = value <= 0 ? 0 : value;
+                    }
+
                     Print(arg, $"Successfully modified all building prices to {value}% of the initial cost.");
                     SaveConfig();
                     return;
@@ -1869,8 +1879,11 @@ namespace Oxide.Plugins
                 case "refundp":
                     if (!float.TryParse(arg.Args[1], out value)) value = 50f;
                     foreach (var buildingBlockS in configData.removeS.buildingBlockS.Values)
+                    {
                         foreach (var data in buildingBlockS.buildingGradeS.Values)
-                            data.refund = value;
+                            data.refund = value <= 0 ? 0 : value;
+                    }
+
                     Print(arg, $"Successfully modified all building refunds to {value}% of the initial cost.");
                     SaveConfig();
                     return;
