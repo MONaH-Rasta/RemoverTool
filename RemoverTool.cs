@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.17", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.18", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -29,7 +29,8 @@ namespace Oxide.Plugins
         private const string PERMISSION_STRUCTURE = "removertool.structure";
         private const string PREFAB_ITEM_DROP = "assets/prefabs/misc/item drop/item_drop.prefab";
 
-        private static readonly int LAYER_ALL = LayerMask.GetMask("Construction", "Deployed", "Default");
+        private const int LAYER_TARGET = ~(1 << 2 | 1 << 3 | 1 << 10 | 1 << 18 | 1 << 28 | 1 << 29);
+        private const int LAYER_ALL = 1 << 8 | 1 << 21;
 
         private static RemoverTool rt;
         private static BUTTON removeButton;
@@ -39,7 +40,7 @@ namespace Oxide.Plugins
         private Coroutine removeStructureCoroutine;
         private Coroutine removeExternalCoroutine;
 
-        private readonly Hash<uint, float> entitySpawnedTimes = new Hash<uint, float>();
+        private Hash<uint, float> entitySpawnedTimes;
         private readonly Hash<ulong, float> cooldownTimes = new Hash<ulong, float>();
 
         private enum RemoveMode
@@ -97,6 +98,7 @@ namespace Oxide.Plugins
             if (configData.raidS.enabled) Subscribe(nameof(OnEntityDeath));
             if (configData.globalS.entityTimeLimit)
             {
+                entitySpawnedTimes = new Hash<uint, float>();
                 Subscribe(nameof(OnEntitySpawned));
                 Subscribe(nameof(OnEntityKill));
             }
@@ -128,7 +130,7 @@ namespace Oxide.Plugins
             foreach (var player in BasePlayer.activePlayerList)
             {
                 var toolRemover = player.GetComponent<ToolRemover>();
-                if (toolRemover != null) UnityEngine.Object.Destroy(toolRemover);
+                if (toolRemover != null) toolRemover.DisableTool();
                 DestroyAllUI(player);
             }
             rt = null;
@@ -152,7 +154,7 @@ namespace Oxide.Plugins
 
         private void OnEntityKill(BaseEntity entity)
         {
-            if (entity == null || entity.net == null) return; 
+            if (entity == null || entity.net == null) return;
             entitySpawnedTimes.Remove(entity.net.ID);
         }
 
@@ -564,13 +566,16 @@ namespace Oxide.Plugins
                         if (configData.uiS.refundEnabled) UpdateRefundUI(player, refund, targetEntity);
                     }
                 }
+
                 if (timeLeft-- <= 0)
-                    Destroy(this);
+                {
+                    DisableTool();
+                }
             }
 
             private void GetTargetEntity()
             {
-                bool flag = Physics.Raycast(player.eyes.HeadRay(), out raycastHit, distance, Rust.Layers.Solid);
+                bool flag = Physics.Raycast(player.eyes.HeadRay(), out raycastHit, distance, LAYER_TARGET);
                 targetEntity = flag ? raycastHit.GetEntity() : null;
             }
 
@@ -589,7 +594,7 @@ namespace Oxide.Plugins
             {
                 if (player == null || !player.IsConnected || !player.CanInteract())
                 {
-                    Destroy(this);
+                    DisableTool();
                     return;
                 }
                 if (removeMode == RemoveMode.NoHeld && player.svActiveItemID != currentItemID)
@@ -599,7 +604,7 @@ namespace Oxide.Plugins
                     {
                         if (configData.removerModeS.disableInHand)
                         {
-                            Destroy(this);
+                            DisableTool();
                             return;
                         }
                         UnEquip();
@@ -630,7 +635,7 @@ namespace Oxide.Plugins
                 if (removeType == RemoveType.Normal && maxRemovable > 0 && currentRemoved >= maxRemovable)
                 {
                     rt.Print(player, rt.Lang("EntityLimit", player.UserIDString, maxRemovable));
-                    Destroy(this);
+                    DisableTool(false);
                 };
             }
 
@@ -645,7 +650,7 @@ namespace Oxide.Plugins
                 activeItem.SetParent(null);
                 player.Invoke(() =>
                 {
-                    if (activeItem == null) return;
+                    if (activeItem == null || !activeItem.IsValid()) return;
                     if (player.inventory.containerBelt.GetSlot(slot) == null)
                     {
                         activeItem.position = slot;
@@ -655,11 +660,23 @@ namespace Oxide.Plugins
                 }, 0.2f);
             }
 
+            public void DisableTool(bool showMessage = true)
+            {
+                if (showMessage)
+                {
+                    if (rt != null && player != null && player.IsConnected)
+                    {
+                        rt.Print(player, rt.Lang("ToolDisabled", player.UserIDString));
+                    }
+                }
+                DestroyImmediate(this);
+            }
+
             private void OnDestroy()
             {
-                CancelInvoke(RemoveUpdate);
                 DestroyAllUI(player);
-                if (removeType == RemoveType.Normal && rt != null)
+                CancelInvoke(RemoveUpdate);
+                if (rt != null && removeType == RemoveType.Normal)
                 {
                     rt.cooldownTimes[player.userID] = Time.realtimeSinceStartup;
                 }
@@ -1088,7 +1105,7 @@ namespace Oxide.Plugins
                 }
             }
             if (shouldRefund) GiveRefund(player, targetEntity);
-            DoNormalRemove(player,targetEntity, configData.removeTypeS[RemoveType.Normal].gibs);
+            DoNormalRemove(player, targetEntity, configData.removeTypeS[RemoveType.Normal].gibs);
             return true;
         }
 
@@ -1473,7 +1490,7 @@ namespace Oxide.Plugins
             int current = 0;
             foreach (var entity in entities)
             {
-                if (DoRemove(entity, gibs) && current++ % configData.globalS.removePerFrame == 0)
+                if (DoRemove(entity, gibs) && ++current % configData.globalS.removePerFrame == 0)
                     yield return CoroutineEx.waitForEndOfFrame;
             }
 
@@ -1510,11 +1527,12 @@ namespace Oxide.Plugins
             return false;
         }
 
-        private static void DoNormalRemove(BasePlayer player,BaseEntity entity, bool gibs = true)
+        private static void DoNormalRemove(BasePlayer player, BaseEntity entity, bool gibs = true)
         {
-            if (DoRemove(entity, gibs))
+            if (entity != null && !entity.IsDestroyed)
             {
                 Interface.CallHook("OnNormalRemovedEntity", player, entity);
+                entity.Kill(gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
             }
         }
 
@@ -1525,7 +1543,7 @@ namespace Oxide.Plugins
         private bool IsToolRemover(BasePlayer player) => player?.GetComponent<ToolRemover>() != null;
 
         private string GetPlayerRemoveType(BasePlayer player) => player?.GetComponent<ToolRemover>()?.removeType.ToString();
- 
+
         #endregion API
 
         #region Commands
@@ -1537,8 +1555,7 @@ namespace Oxide.Plugins
                 var sourceRemover = player.GetComponent<ToolRemover>();
                 if (sourceRemover != null)
                 {
-                    UnityEngine.Object.Destroy(sourceRemover);
-                    Print(player, Lang("ToolDisabled", player.UserIDString));
+                    sourceRemover.DisableTool();
                     return;
                 }
             }
@@ -1766,7 +1783,7 @@ namespace Oxide.Plugins
                     var toolRemover = target.GetComponent<ToolRemover>();
                     if (toolRemover != null)
                     {
-                        UnityEngine.Object.Destroy(toolRemover);
+                        toolRemover.DisableTool();
                         Print(arg, $"{target}'s remover tool is disabled");
                     }
                     else Print(arg, $"{target} did not enable the remover tool");
@@ -1899,7 +1916,7 @@ namespace Oxide.Plugins
                         if (toolRemover.removeType == RemoveType.Normal && toolRemover.canOverride)
                         {
                             Print(toolRemover.player, "The remover tool has been disabled by the admin");
-                            UnityEngine.Object.Destroy(toolRemover);
+                            toolRemover.DisableTool(false);
                         }
                     }
                     return;
@@ -2063,10 +2080,7 @@ namespace Oxide.Plugins
                 public string command = "remove";
 
                 [JsonProperty(PropertyName = "Chat Prefix")]
-                public string prefix = "[RemoverTool]: ";
-
-                [JsonProperty(PropertyName = "Chat Prefix Color")]
-                public string prefixColor = "#00FFFF";
+                public string prefix = "<color=#00FFFF>[RemoverTool]</color>: ";
 
                 [JsonProperty(PropertyName = "Chat SteamID Icon")]
                 public ulong steamIDIcon = 0;
@@ -2218,10 +2232,10 @@ namespace Oxide.Plugins
                 public bool enabled = true;
 
                 [JsonProperty(PropertyName = "Main Box - Min Anchor (in Rust Window)")]
-                public string removerToolAnchorMin = "0.1 0.55";
+                public string removerToolAnchorMin = "0.04 0.55";
 
                 [JsonProperty(PropertyName = "Main Box - Max Anchor (in Rust Window)")]
-                public string removerToolAnchorMax = "0.4 0.95";
+                public string removerToolAnchorMax = "0.37 0.95";
 
                 [JsonProperty(PropertyName = "Main Box - Background Color")]
                 public string removerToolBackgroundColor = "0 0 0 0";
@@ -2463,6 +2477,9 @@ namespace Oxide.Plugins
                     public Dictionary<string, int> refund = new Dictionary<string, int>();
                 }
             }
+
+            [JsonProperty(PropertyName = "Version")]
+            public VersionNumber version = new VersionNumber(4, 3, 17);
         }
 
         protected override void LoadConfig()
@@ -2472,7 +2489,13 @@ namespace Oxide.Plugins
             {
                 configData = Config.ReadObject<ConfigData>();
                 if (configData == null)
+                {
                     LoadDefaultConfig();
+                }
+                else
+                {
+                    UpdateConfigValues();
+                }
             }
             catch
             {
@@ -2488,7 +2511,32 @@ namespace Oxide.Plugins
             configData = new ConfigData();
         }
 
-        protected override void SaveConfig() => Config.WriteObject(configData);
+        protected override void SaveConfig() => Config.WriteObject(configData, true);
+
+        private void UpdateConfigValues()
+        {
+            if (configData.version < Version)
+            {
+                if (configData.version <= new VersionNumber(4, 3, 17))
+                {
+                    if (configData.chatS.prefix == "[RemoverTool]: ")
+                    {
+                        configData.chatS.prefix = "<color=#00FFFF>[RemoverTool]</color>: ";
+                    }
+
+                    if (configData.uiS.removerToolAnchorMin == "0.1 0.55")
+                    {
+                        configData.uiS.removerToolAnchorMin = "0.04 0.55";
+                    }
+
+                    if (configData.uiS.removerToolAnchorMax == "0.4 0.95")
+                    {
+                        configData.uiS.removerToolAnchorMax = "0.37 0.95";
+                    }
+                }
+                configData.version = Version;
+            }
+        }
 
         #endregion ConfigurationFile
 
@@ -2496,7 +2544,7 @@ namespace Oxide.Plugins
 
         private void Print(BasePlayer player, string message)
         {
-            Player.Message(player, message, string.IsNullOrEmpty(configData.chatS.prefix) ? string.Empty : $"<color={configData.chatS.prefixColor}>{configData.chatS.prefix}</color>", configData.chatS.steamIDIcon);
+            Player.Message(player, message, configData.chatS.prefix, configData.chatS.steamIDIcon);
         }
 
         private void Print(ConsoleSystem.Arg arg, string message)
