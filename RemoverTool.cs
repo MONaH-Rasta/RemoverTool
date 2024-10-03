@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.18", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.19", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -293,7 +293,7 @@ namespace Oxide.Plugins
 
         private class UI
         {
-            public static CuiElementContainer CreateElementContainer(string parent, string panelName, string backgroundColor, string anchorMin, string anchorMax, bool cursor = false)
+            public static CuiElementContainer CreateElementContainer(string parent, string panelName, string backgroundColor, string anchorMin, string anchorMax, string offsetMin = "", string offsetMax = "", bool cursor = false)
             {
                 return new CuiElementContainer()
                 {
@@ -301,11 +301,9 @@ namespace Oxide.Plugins
                         new CuiPanel
                         {
                             Image = { Color = backgroundColor },
-                            RectTransform = { AnchorMin = anchorMin, AnchorMax = anchorMax },
+                            RectTransform = { AnchorMin = anchorMin, AnchorMax = anchorMax ,OffsetMin = offsetMin,OffsetMax = offsetMax},
                             CursorEnabled = cursor
-                        },
-                        new CuiElement().Parent = parent,
-                        panelName
+                        }, parent, panelName
                     }
                 };
             }
@@ -355,28 +353,28 @@ namespace Oxide.Plugins
         private static void CreateCrosshairUI(BasePlayer player)
         {
             if (rt.ImageLibrary == null) return;
-            CuiHelper.DestroyUi(player, UINAME_CROSSHAIR);
             var image = GetImageFromLibrary(UINAME_CROSSHAIR);
             if (string.IsNullOrEmpty(image)) return;
-            var container = UI.CreateElementContainer("Hud", UINAME_CROSSHAIR, "0 0 0 0", configData.removerModeS.crosshairAnchorMin, configData.removerModeS.crosshairAnchorMax);
+            var container = UI.CreateElementContainer("Hud", UINAME_CROSSHAIR, "0 0 0 0", configData.removerModeS.crosshairAnchorMin, configData.removerModeS.crosshairAnchorMax, configData.removerModeS.crosshairOffsetMin, configData.removerModeS.crosshairOffsetMax);
             UI.CreateImage(ref container, UINAME_CROSSHAIR, image, "0 0", "1 1", configData.removerModeS.crosshairColor);
+            CuiHelper.DestroyUi(player, UINAME_CROSSHAIR);
             CuiHelper.AddUi(player, container);
         }
 
         private static void CreateToolUI(BasePlayer player, RemoveType removeType)
         {
-            CuiHelper.DestroyUi(player, UINAME_MAIN);
-            var container = UI.CreateElementContainer("Hud", UINAME_MAIN, configData.uiS.removerToolBackgroundColor, configData.uiS.removerToolAnchorMin, configData.uiS.removerToolAnchorMax);
+            var container = UI.CreateElementContainer("Hud", UINAME_MAIN, configData.uiS.removerToolBackgroundColor, configData.uiS.removerToolAnchorMin, configData.uiS.removerToolAnchorMax, configData.uiS.removerToolOffsetMin, configData.uiS.removerToolOffsetMax);
             UI.CreatePanel(ref container, UINAME_MAIN, configData.uiS.removeBackgroundColor, configData.uiS.removeAnchorMin, configData.uiS.removeAnchorMax);
             UI.CreateLabel(ref container, UINAME_MAIN, configData.uiS.removeTextColor, rt.Lang("RemoverToolType", player.UserIDString, GetRemoveTypeName(removeType)), configData.uiS.removeTextSize, configData.uiS.removeTextAnchorMin, configData.uiS.removeTextAnchorMax, TextAnchor.MiddleLeft);
+            CuiHelper.DestroyUi(player, UINAME_MAIN);
             CuiHelper.AddUi(player, container);
         }
 
         private static void UpdateTimeLeftUI(BasePlayer player, RemoveType removeType, int timeLeft, int currentRemoved, int maxRemovable)
         {
-            CuiHelper.DestroyUi(player, UINAME_TIMELEFT);
             var container = UI.CreateElementContainer(UINAME_MAIN, UINAME_TIMELEFT, configData.uiS.timeLeftBackgroundColor, configData.uiS.timeLeftAnchorMin, configData.uiS.timeLeftAnchorMax);
             UI.CreateLabel(ref container, UINAME_TIMELEFT, configData.uiS.timeLeftTextColor, rt.Lang("TimeLeft", player.UserIDString, timeLeft, removeType == RemoveType.Normal || removeType == RemoveType.Admin ? maxRemovable == 0 ? $"{currentRemoved} / {rt.Lang("Unlimit", player.UserIDString)}" : $"{currentRemoved} / {maxRemovable}" : currentRemoved.ToString()), configData.uiS.timeLeftTextSize, configData.uiS.timeLeftTextAnchorMin, configData.uiS.timeLeftTextAnchorMax, TextAnchor.MiddleLeft);
+            CuiHelper.DestroyUi(player, UINAME_TIMELEFT);
             CuiHelper.AddUi(player, container);
         }
 
@@ -2171,10 +2169,16 @@ namespace Oxide.Plugins
                 public string crosshairImageUrl = "https://i.imgur.com/SqLCJaQ.png";
 
                 [JsonProperty(PropertyName = "No Held Item Mode - Crosshair Box - Min Anchor (in Rust Window)")]
-                public string crosshairAnchorMin = "0.49 0.48";
+                public string crosshairAnchorMin = "0.5 0.5";
 
                 [JsonProperty(PropertyName = "No Held Item Mode - Crosshair Box - Max Anchor (in Rust Window)")]
-                public string crosshairAnchorMax = "0.51 0.52";
+                public string crosshairAnchorMax = "0.5 0.5";
+
+                [JsonProperty(PropertyName = "No Held Item Mode - Crosshair Box - Min Offset (in Rust Window)")]
+                public string crosshairOffsetMin = "-15 -15";
+
+                [JsonProperty(PropertyName = "No Held Item Mode - Crosshair Box - Max Offset (in Rust Window)")]
+                public string crosshairOffsetMax = "15 15";
 
                 [JsonProperty(PropertyName = "No Held Item Mode - Crosshair Box - Image Color")]
                 public string crosshairColor = "1 0 0 1";
@@ -2232,37 +2236,43 @@ namespace Oxide.Plugins
                 public bool enabled = true;
 
                 [JsonProperty(PropertyName = "Main Box - Min Anchor (in Rust Window)")]
-                public string removerToolAnchorMin = "0.04 0.55";
+                public string removerToolAnchorMin = "0 1";
 
                 [JsonProperty(PropertyName = "Main Box - Max Anchor (in Rust Window)")]
-                public string removerToolAnchorMax = "0.37 0.95";
+                public string removerToolAnchorMax = "0 1";
+
+                [JsonProperty(PropertyName = "Main Box - Min Offset (in Rust Window)")]
+                public string removerToolOffsetMin = "30 -330";
+
+                [JsonProperty(PropertyName = "Main Box - Max Offset (in Rust Window)")]
+                public string removerToolOffsetMax = "470 -40";
 
                 [JsonProperty(PropertyName = "Main Box - Background Color")]
                 public string removerToolBackgroundColor = "0 0 0 0";
 
                 [JsonProperty(PropertyName = "Remove Title - Box - Min Anchor (in Main Box)")]
-                public string removeAnchorMin = "0 0.85";
+                public string removeAnchorMin = "0 0.84";
 
                 [JsonProperty(PropertyName = "Remove Title - Box - Max Anchor (in Main Box)")]
-                public string removeAnchorMax = "1 1";
+                public string removeAnchorMax = "0.996 1";
 
                 [JsonProperty(PropertyName = "Remove Title - Box - Background Color")]
-                public string removeBackgroundColor = "0 1 1 0.9";
+                public string removeBackgroundColor = "0.42 0.88 0.88 1";
 
                 [JsonProperty(PropertyName = "Remove Title - Text - Min Anchor (in Main Box)")]
-                public string removeTextAnchorMin = "0.05 0.85";
+                public string removeTextAnchorMin = "0.05 0.84";
 
                 [JsonProperty(PropertyName = "Remove Title - Text - Max Anchor (in Main Box)")]
                 public string removeTextAnchorMax = "0.6 1";
 
                 [JsonProperty(PropertyName = "Remove Title - Text - Text Color")]
-                public string removeTextColor = "1 0 0 0.9";
+                public string removeTextColor = "1 0.1 0.1 1";
 
                 [JsonProperty(PropertyName = "Remove Title - Text - Text Size")]
                 public int removeTextSize = 18;
 
                 [JsonProperty(PropertyName = "Timeleft - Box - Min Anchor (in Main Box)")]
-                public string timeLeftAnchorMin = "0.6 0.85";
+                public string timeLeftAnchorMin = "0.6 0.84";
 
                 [JsonProperty(PropertyName = "Timeleft - Box - Max Anchor (in Main Box)")]
                 public string timeLeftAnchorMax = "1 1";
@@ -2283,13 +2293,13 @@ namespace Oxide.Plugins
                 public int timeLeftTextSize = 15;
 
                 [JsonProperty(PropertyName = "Entity - Box - Min Anchor (in Main Box)")]
-                public string entityAnchorMin = "0 0.71";
+                public string entityAnchorMin = "0 0.68";
 
                 [JsonProperty(PropertyName = "Entity - Box - Max Anchor (in Main Box)")]
-                public string entityAnchorMax = "1 0.85";
+                public string entityAnchorMax = "1 0.84";
 
                 [JsonProperty(PropertyName = "Entity - Box - Background Color")]
-                public string entityBackgroundColor = "0 0 0 0.9";
+                public string entityBackgroundColor = "0 0 0 0.8";
 
                 [JsonProperty(PropertyName = "Entity - Text - Min Anchor (in Entity Box)")]
                 public string entityTextAnchorMin = "0.05 0";
@@ -2307,19 +2317,19 @@ namespace Oxide.Plugins
                 public bool entityImageEnabled = true;
 
                 [JsonProperty(PropertyName = "Entity - Image - Min Anchor (in Entity Box)")]
-                public string entityImageAnchorMin = "0.74 0";
+                public string entityImageAnchorMin = "0.795 0.01";
 
                 [JsonProperty(PropertyName = "Entity - Image - Max Anchor (in Entity Box)")]
-                public string entityImageAnchorMax = "0.86 1";
+                public string entityImageAnchorMax = "0.9 0.99";
 
                 [JsonProperty(PropertyName = "Authorization Check Enabled")]
                 public bool authorizationEnabled = true;
 
                 [JsonProperty(PropertyName = "Authorization Check - Box - Min Anchor (in Main Box)")]
-                public string authorizationsAnchorMin = "0 0.65";
+                public string authorizationsAnchorMin = "0 0.6";
 
                 [JsonProperty(PropertyName = "Authorization Check - Box - Max Anchor (in Main Box)")]
-                public string authorizationsAnchorMax = "1 0.71";
+                public string authorizationsAnchorMax = "1 0.68";
 
                 [JsonProperty(PropertyName = "Authorization Check - Box - Allowed Background")]
                 public string allowedBackgroundColor = "0 1 0 0.8";
@@ -2346,19 +2356,19 @@ namespace Oxide.Plugins
                 public float imageScale = 0.18f;
 
                 [JsonProperty(PropertyName = "Price & Refund - Distance of image from right border")]
-                public float rightDistance = 0.1f;
+                public float rightDistance = 0.05f;
 
                 [JsonProperty(PropertyName = "Price Enabled")]
                 public bool priceEnabled = true;
 
                 [JsonProperty(PropertyName = "Price - Box - Min Anchor (in Main Box)")]
-                public string priceAnchorMin = "0 0.4";
+                public string priceAnchorMin = "0 0.3";
 
                 [JsonProperty(PropertyName = "Price - Box - Max Anchor (in Main Box)")]
-                public string priceAnchorMax = "1 0.65";
+                public string priceAnchorMax = "1 0.6";
 
                 [JsonProperty(PropertyName = "Price - Box - Background Color")]
-                public string priceBackgroundColor = "0 0 0 0.9";
+                public string priceBackgroundColor = "0 0 0 0.8";
 
                 [JsonProperty(PropertyName = "Price - Text - Min Anchor (in Price Box)")]
                 public string priceTextAnchorMin = "0.05 0";
@@ -2388,13 +2398,13 @@ namespace Oxide.Plugins
                 public bool refundEnabled = true;
 
                 [JsonProperty(PropertyName = "Refund - Box - Min Anchor (in Main Box)")]
-                public string refundAnchorMin = "0 0.15";
+                public string refundAnchorMin = "0 0";
 
                 [JsonProperty(PropertyName = "Refund - Box - Max Anchor (in Main Box)")]
-                public string refundAnchorMax = "1 0.4";
+                public string refundAnchorMax = "1 0.3";
 
                 [JsonProperty(PropertyName = "Refund - Box - Background Color")]
-                public string refundBackgroundColor = "0 0 0 0.9";
+                public string refundBackgroundColor = "0 0 0 0.8";
 
                 [JsonProperty(PropertyName = "Refund - Text - Min Anchor (in Refund Box)")]
                 public string refundTextAnchorMin = "0.05 0";
@@ -2534,6 +2544,15 @@ namespace Oxide.Plugins
                         configData.uiS.removerToolAnchorMax = "0.37 0.95";
                     }
                 }
+
+                if (configData.version <= new VersionNumber(4, 3, 18))
+                {
+                    configData.removerModeS.crosshairAnchorMin = "0.5 0";
+                    configData.removerModeS.crosshairAnchorMax = "0.5 0";
+                    configData.uiS.removerToolAnchorMin = "0 1";
+                    configData.uiS.removerToolAnchorMax = "0 1";
+                }
+
                 configData.version = Version;
             }
         }
