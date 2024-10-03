@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.10", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.12", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -258,7 +258,7 @@ namespace Oxide.Plugins
             if (configData.removeS.entityS.TryGetValue(shorPrefabName, out entityS)) return entityS.displayName;
             ConfigData.RemoveS.BBS buildingBlockS;
             if (configData.removeS.buildingBlockS.TryGetValue(name, out buildingBlockS)) return buildingBlockS.displayName;
-            if (configData.displayNames.TryGetValue(name, out name)) return name;
+            if (configData.displayNames.TryGetValue(name, out shorPrefabName)) return shorPrefabName;
             var itemDefinition = ItemManager.FindItemDefinition(name);
             if (itemDefinition != null)
             {
@@ -447,8 +447,8 @@ namespace Oxide.Plugins
         {
             CuiHelper.DestroyUi(player, UINAME_AUTH);
             if (targetEntity == null) return;
-            string reason = string.Empty;
-            string color = rt.CanRemoveEntity(player, removeType, targetEntity, shouldPay, ref reason) ? configData.uiS.allowedBackgroundColor : configData.uiS.refusedBackgroundColor;
+            string reason;
+            string color = rt.CanRemoveEntity(player, removeType, targetEntity, shouldPay, out reason) ? configData.uiS.allowedBackgroundColor : configData.uiS.refusedBackgroundColor;
             var container = UI.CreateElementContainer(UINAME_MAIN, UINAME_AUTH, color, configData.uiS.authorizationsAnchorMin, configData.uiS.authorizationsAnchorMax);
             UI.CreateLabel(ref container, UINAME_AUTH, configData.uiS.authorizationsTextColor, reason, configData.uiS.authorizationsTextSize, configData.uiS.authorizationsTextAnchorMin, configData.uiS.authorizationsTextAnchorMax, TextAnchor.MiddleLeft);
             CuiHelper.AddUi(player, container);
@@ -676,7 +676,7 @@ namespace Oxide.Plugins
                     ConfigData.RemoveS.BBS.BGS buildingGradeS;
                     if (buildingBlockS.buildingGradeS.TryGetValue(buildingblock.grade, out buildingGradeS))
                     {
-                        float percentage = 0;
+                        float percentage;
                         if (float.TryParse(buildingGradeS.price.ToString(), out percentage))
                         {
                             var currentGrade = buildingblock.currentGrade;
@@ -925,7 +925,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private bool IsRaidBlocked(BasePlayer player, BaseEntity targetEntity, ref float timeLeft)
+        private bool IsRaidBlocked(BasePlayer player, BaseEntity targetEntity, out float timeLeft)
         {
             if (configData.raidS.blockBuildingID)
             {
@@ -941,6 +941,7 @@ namespace Oxide.Plugins
                 timeLeft = configData.raidS.blockTime - (Time.realtimeSinceStartup - lastBlockedPlayers[player.userID]);
                 if (timeLeft > 0) return true;
             }
+            timeLeft = 0;
             return false;
         }
 
@@ -960,8 +961,8 @@ namespace Oxide.Plugins
                 DoRemove(targetEntity, configData.removeTypeS[RemoveType.Admin].gibs);
                 return true;
             }
-            string reason = string.Empty;
-            if (!CanRemoveEntity(player, removeType, targetEntity, shouldPay, ref reason))
+            string reason;
+            if (!CanRemoveEntity(player, removeType, targetEntity, shouldPay, out reason))
             {
                 Print(player, reason);
                 return false;
@@ -1047,14 +1048,18 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private bool CanRemoveEntity(BasePlayer player, RemoveType removeType, BaseEntity targetEntity, bool shouldPay, ref string reason)
+        private bool CanRemoveEntity(BasePlayer player, RemoveType removeType, BaseEntity targetEntity, bool shouldPay, out string reason)
         {
             if (targetEntity.IsDestroyed || !IsRemovableEntity(targetEntity))
             {
                 reason = Lang("InvalidEntity", player.UserIDString);
                 return false;
             }
-            if (removeType != RemoveType.Normal) return true;
+            if (removeType != RemoveType.Normal)
+            {
+                reason = string.Empty;
+                return true;
+            }
             if (!IsValidEntity(targetEntity))
             {
                 reason = Lang("EntityDisabled", player.UserIDString);
@@ -1071,8 +1076,8 @@ namespace Oxide.Plugins
                 reason = Lang("DamagedEntity", player.UserIDString);
                 return false;
             }
-            float timeLeft = 0f;
-            if (configData.raidS.enabled && IsRaidBlocked(player, targetEntity, ref timeLeft))
+            float timeLeft;
+            if (configData.raidS.enabled && IsRaidBlocked(player, targetEntity, out timeLeft))
             {
                 reason = Lang("RaidBlocked", player.UserIDString, Math.Ceiling(timeLeft));
                 return false;
@@ -1121,7 +1126,7 @@ namespace Oxide.Plugins
         {
             if (configData.globalS.useEntityOwners)
             {
-                if (targetEntity.OwnerID == player.userID || AreFriends(targetEntity.OwnerID, player.userID))
+                if (AreFriends(targetEntity.OwnerID, player.userID))
                 {
                     if (!configData.globalS.useToolCupboards) return true;
                     else if (HasTotalAccess(player, targetEntity)) return true;
@@ -1131,7 +1136,7 @@ namespace Oxide.Plugins
             {
                 if (configData.globalS.useEntityOwners)
                 {
-                    if (targetEntity.OwnerID == player.userID || AreFriends(targetEntity.OwnerID, player.userID))
+                    if (AreFriends(targetEntity.OwnerID, player.userID))
                         return true;
                     return false;
                 }
@@ -1152,7 +1157,7 @@ namespace Oxide.Plugins
                     if (returnhook != null && returnhook is string)
                     {
                         ulong ownerID = ulong.Parse((string)returnhook);
-                        if (player.userID == ownerID || AreFriends(ownerID, player.userID))
+                        if (AreFriends(ownerID, player.userID))
                             return true;
                     }
                 }
@@ -1170,32 +1175,41 @@ namespace Oxide.Plugins
         private bool AreFriends(ulong playerID, ulong friendID)
         {
             if (!playerID.IsSteamId()) return false;
-            if (configData.globalS.useFriends && Friends != null)
-            {
-                var r = Friends.CallHook("HasFriend", playerID, friendID);
-                if (r != null && (bool)r) return true;
-            }
-            if (configData.globalS.useClans && Clans != null)
-            {
-                //Clans
-                var isMember = Clans.Call("IsClanMember", playerID.ToString(), friendID.ToString());
-                if (isMember != null) return (bool)isMember;
-                //Rust:IO Clans
-                var playerClan = Clans.Call("GetClanOf", playerID);
-                if (playerClan == null) return false;
-                var friendClan = Clans.Call("GetClanOf", friendID);
-                if (friendClan == null) return false;
-                return (string)playerClan == (string)friendClan;
-            }
-            if (configData.globalS.useTeams && RelationshipManager.TeamsEnabled())
-            {
-                var playerTeam = RelationshipManager.Instance.FindPlayersTeam(playerID);
-                if (playerTeam == null) return false;
-                var friendTeam = RelationshipManager.Instance.FindPlayersTeam(friendID);
-                if (friendTeam == null) return false;
-                return playerTeam == friendTeam;
-            }
+            if (playerID == friendID) return true;
+            if (configData.globalS.useTeams && SameTeam(playerID, friendID)) return true;
+            if (configData.globalS.useFriends && HasFriend(playerID, friendID)) return true;
+            if (configData.globalS.useClans && SameClan(playerID, friendID)) return true;
             return false;
+        }
+
+        private bool SameTeam(ulong playerID, ulong friendID)
+        {
+            if (!RelationshipManager.TeamsEnabled()) return false;
+            var playerTeam = RelationshipManager.Instance.FindPlayersTeam(playerID);
+            if (playerTeam == null) return false;
+            var friendTeam = RelationshipManager.Instance.FindPlayersTeam(friendID);
+            if (friendTeam == null) return false;
+            return playerTeam == friendTeam;
+        }
+
+        private bool HasFriend(ulong playerID, ulong friendID)
+        {
+            if (Friends == null) return false;
+            return (bool)Friends.Call("HasFriend", playerID, friendID);
+        }
+
+        private bool SameClan(ulong playerID, ulong friendID)
+        {
+            if (Clans == null) return false;
+            //Clans
+            var isMember = Clans.Call("IsClanMember", playerID.ToString(), friendID.ToString());
+            if (isMember != null) return (bool)isMember;
+            //Rust:IO Clans
+            var playerClan = Clans.Call("GetClanOf", playerID);
+            if (playerClan == null) return false;
+            var friendClan = Clans.Call("GetClanOf", friendID);
+            if (friendClan == null) return false;
+            return (string)playerClan == (string)friendClan;
         }
 
         private bool HasStash(BuildingBlock buildingBlock)
@@ -1396,7 +1410,7 @@ namespace Oxide.Plugins
             }
             RemoveType removeType = RemoveType.Normal;
             int time = configData.removeTypeS[removeType].defaultTime;
-            if (args.Length > 0)
+            if (args != null && args.Length > 0)
             {
                 switch (args[0].ToLower())
                 {
@@ -1474,7 +1488,7 @@ namespace Oxide.Plugins
                 }
                 permissionS = GetPermissionS(player);
             }
-            if (args.Length > 1) int.TryParse(args[1], out time);
+            if (args != null && args.Length > 1) int.TryParse(args[1], out time);
             ToggleRemove(player, removeType, time, permissionS);
         }
 
@@ -1779,7 +1793,6 @@ namespace Oxide.Plugins
             foreach (var entry in shorPrefabNameToDeployable)
                 if (!configData.removeS.entityS.ContainsKey(entry.Key))
                     configData.removeS.entityS.Add(entry.Key, new ConfigData.RemoveS.ES { enabled = true, displayName = ItemManager.FindItemDefinition(entry.Value)?.displayName?.english ?? string.Empty, refund = new Dictionary<string, int> { [entry.Value] = 1 }, price = new Dictionary<string, int>() });
-
             SaveConfig();
         }
 
