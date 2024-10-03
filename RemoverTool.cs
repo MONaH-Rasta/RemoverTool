@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.14", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.15", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -101,8 +101,10 @@ namespace Oxide.Plugins
             }
             if (!Enum.TryParse(configData.globalS.removeButton, true, out removeButton))
             {
-                PrintError($"{configData.globalS.removeButton} is an invalid button. The remover button has been changed to 'FIRE_PRIMARY'.");
+                PrintError($"{configData.globalS.removeButton} is an invalid button. The remove button has been changed to 'FIRE_PRIMARY'.");
                 removeButton = BUTTON.FIRE_PRIMARY;
+                configData.globalS.removeButton = removeButton.ToString();
+                SaveConfig();
             }
             if (ImageLibrary != null)
             {
@@ -151,12 +153,9 @@ namespace Oxide.Plugins
         private object OnHammerHit(BasePlayer player, HitInfo info)
         {
             var toolRemover = player.GetComponent<ToolRemover>();
-            if (toolRemover != null)
-            {
-                toolRemover.hitEntity = info.HitEntity;
-                return false;
-            }
-            return null;
+            if (toolRemover == null) return null;
+            toolRemover.hitEntity = info.HitEntity;
+            return false;
         }
 
         #endregion Oxide Hooks
@@ -207,7 +206,7 @@ namespace Oxide.Plugins
         private static bool EntityCanBeSaved(BaseEntity entity)
         {
             if (entity is BuildingBlock) return true;
-            ConfigData.RemoveS.ES entityS;
+            ConfigData.RemoveS.EntityS entityS;
             return configData.removeS.entityS.TryGetValue(entity.ShortPrefabName, out entityS) && entityS.enabled;
         }
 
@@ -216,18 +215,13 @@ namespace Oxide.Plugins
             var buildingBlock = entity.GetComponent<BuildingBlock>();
             bool valid;
             if (buildingBlock != null && configData.removeS.validConstruction.TryGetValue(buildingBlock.grade, out valid) && valid) return true;
-            ConfigData.RemoveS.ES entityS;
+            ConfigData.RemoveS.EntityS entityS;
             if (configData.removeS.entityS.TryGetValue(entity.ShortPrefabName, out entityS) && entityS.enabled) return true;
             return false;
         }
 
         private static string GetEntityName(BaseEntity entity)
         {
-            if (entity is BasePlayer)
-            {
-                var player = entity as BasePlayer;
-                return $"{player.displayName} ({player.ShortPrefabName})";
-            }
             string entityName;
             if (rt.shorPrefabNameToDeployable.TryGetValue(entity.ShortPrefabName, out entityName)) return entityName;
             if (rt.prefabNameToStructure.TryGetValue(entity.PrefabName, out entityName)) return entityName;
@@ -259,9 +253,9 @@ namespace Oxide.Plugins
             var shorPrefabName = rt.shorPrefabNameToDeployable.FirstOrDefault(x => x.Value == name).Key;
             if (string.IsNullOrEmpty(shorPrefabName)) shorPrefabName = name;
 
-            ConfigData.RemoveS.ES entityS;
+            ConfigData.RemoveS.EntityS entityS;
             if (configData.removeS.entityS.TryGetValue(shorPrefabName, out entityS)) return entityS.displayName;
-            ConfigData.RemoveS.BBS buildingBlockS;
+            ConfigData.RemoveS.BuildingBlocksS buildingBlockS;
             if (configData.removeS.buildingBlockS.TryGetValue(name, out buildingBlockS)) return buildingBlockS.displayName;
             if (configData.displayNames.TryGetValue(name, out shorPrefabName)) return shorPrefabName;
             var itemDefinition = ItemManager.FindItemDefinition(name);
@@ -374,11 +368,19 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, UINAME_ENTITY);
             if (targetEntity == null) return;
             var container = UI.CreateElementContainer(UINAME_MAIN, UINAME_ENTITY, configData.uiS.entityBackgroundColor, configData.uiS.entityAnchorMin, configData.uiS.entityAnchorMax);
-            var name = GetEntityName(targetEntity);
-            UI.CreateLabel(ref container, UINAME_ENTITY, configData.uiS.entityTextColor, string.IsNullOrEmpty(name) ? targetEntity.ShortPrefabName : GetDisplayName(name), configData.uiS.entityTextSize, configData.uiS.entityTextAnchorMin, configData.uiS.entityTextAnchorMax, TextAnchor.MiddleLeft);
-            if (configData.uiS.entityImageEnabled && !string.IsNullOrEmpty(name) && rt.ImageLibrary != null)
+            string name;
+            var entityName = GetEntityName(targetEntity);
+            if (string.IsNullOrEmpty(entityName))
             {
-                var image = GetEntityImage(name);
+                if (targetEntity is BasePlayer)
+                    name = $"{(targetEntity as BasePlayer).displayName} ({GetDisplayName(targetEntity.ShortPrefabName)})";
+                else name = targetEntity.ShortPrefabName;
+            }
+            else name = GetDisplayName(entityName);
+            UI.CreateLabel(ref container, UINAME_ENTITY, configData.uiS.entityTextColor, name, configData.uiS.entityTextSize, configData.uiS.entityTextAnchorMin, configData.uiS.entityTextAnchorMax, TextAnchor.MiddleLeft);
+            if (configData.uiS.entityImageEnabled && !string.IsNullOrEmpty(entityName) && rt.ImageLibrary != null)
+            {
+                var image = GetEntityImage(entityName);
                 if (!string.IsNullOrEmpty(image))
                     UI.CreateImage(ref container, UINAME_ENTITY, image, configData.uiS.entityImageAnchorMin, configData.uiS.entityImageAnchorMax);
             }
@@ -526,14 +528,17 @@ namespace Oxide.Plugins
 
             private void RemoveUpdate()
             {
-                TimeLeftUpdate(player, removeType, timeLeft, currentRemoved, maxRemovable);
-                GetTargetEntity();
-                EntityUpdate(player, targetEntity);
-                if (removeType == RemoveType.Normal)
+                if (configData.uiS.enabled)
                 {
-                    if (configData.uiS.authorizationEnabled) AuthorizationUpdate(player, removeType, targetEntity, pay);
-                    if (configData.uiS.priceEnabled) PricesUpdate(player, pay, targetEntity);
-                    if (configData.uiS.refundEnabled) RefundUpdate(player, refund, targetEntity);
+                    TimeLeftUpdate(player, removeType, timeLeft, currentRemoved, maxRemovable);
+                    GetTargetEntity();
+                    EntityUpdate(player, targetEntity);
+                    if (removeType == RemoveType.Normal)
+                    {
+                        if (configData.uiS.authorizationEnabled) AuthorizationUpdate(player, removeType, targetEntity, pay);
+                        if (configData.uiS.priceEnabled) PricesUpdate(player, pay, targetEntity);
+                        if (configData.uiS.refundEnabled) RefundUpdate(player, refund, targetEntity);
+                    }
                 }
                 if (timeLeft-- <= 0)
                     Destroy(this);
@@ -679,10 +684,10 @@ namespace Oxide.Plugins
             if (buildingblock != null)
             {
                 var entityName = prefabNameToStructure[buildingblock.PrefabName];
-                ConfigData.RemoveS.BBS buildingBlockS;
+                ConfigData.RemoveS.BuildingBlocksS buildingBlockS;
                 if (configData.removeS.buildingBlockS.TryGetValue(entityName, out buildingBlockS))
                 {
-                    ConfigData.RemoveS.BBS.BGS buildingGradeS;
+                    ConfigData.RemoveS.BuildingBlocksS.BuildingGradeS buildingGradeS;
                     if (buildingBlockS.buildingGradeS.TryGetValue(buildingblock.grade, out buildingGradeS))
                     {
                         float percentage;
@@ -717,7 +722,7 @@ namespace Oxide.Plugins
             }
             else
             {
-                ConfigData.RemoveS.ES entityS;
+                ConfigData.RemoveS.EntityS entityS;
                 if (configData.removeS.entityS.TryGetValue(targetEntity.ShortPrefabName, out entityS))
                     return entityS.price;
             }
@@ -751,13 +756,13 @@ namespace Oxide.Plugins
                     if (Economics == null) return false;
                     if (check)
                     {
-                        var b = Economics.CallHook("Balance", playerID);
+                        var b = Economics.Call("Balance", playerID);
                         if (b == null) return false;
                         if ((double)b < price) return false;
                     }
                     else
                     {
-                        var w = Economics.CallHook("Withdraw", playerID, (double)price);
+                        var w = Economics.Call("Withdraw", playerID, (double)price);
                         if (w == null || !(bool)w) return false;
                     }
                     return true;
@@ -766,13 +771,13 @@ namespace Oxide.Plugins
                     if (ServerRewards == null) return false;
                     if (check)
                     {
-                        var c = ServerRewards.CallHook("CheckPoints", playerID);
+                        var c = ServerRewards.Call("CheckPoints", playerID);
                         if (c == null) return false;
                         if ((int)c < price) return false;
                     }
                     else
                     {
-                        var t = ServerRewards.CallHook("TakePoints", playerID, price);
+                        var t = ServerRewards.Call("TakePoints", playerID, price);
                         if (t == null || !(bool)t) return false;
                     }
                     return true;
@@ -803,12 +808,12 @@ namespace Oxide.Plugins
                     {
                         case "economics":
                             if (Economics == null) continue;
-                            Economics.CallHook("Deposit", player.userID, (double)r.Value);
+                            Economics.Call("Deposit", player.userID, (double)r.Value);
                             continue;
 
                         case "serverrewards":
                             if (ServerRewards == null) continue;
-                            ServerRewards.CallHook("AddPoints", player.userID, r.Value);
+                            ServerRewards.Call("AddPoints", player.userID, r.Value);
                             continue;
                         default:
                             PrintError($"{player} didn't receive refund because {r.Key} doesn't seem to be a valid item name");
@@ -825,10 +830,10 @@ namespace Oxide.Plugins
             if (buildingblock != null)
             {
                 var entityName = prefabNameToStructure[buildingblock.PrefabName];
-                ConfigData.RemoveS.BBS buildingBlockS;
+                ConfigData.RemoveS.BuildingBlocksS buildingBlockS;
                 if (configData.removeS.buildingBlockS.TryGetValue(entityName, out buildingBlockS))
                 {
-                    ConfigData.RemoveS.BBS.BGS buildingGradeS;
+                    ConfigData.RemoveS.BuildingBlocksS.BuildingGradeS buildingGradeS;
                     if (buildingBlockS.buildingGradeS.TryGetValue(buildingblock.grade, out buildingGradeS))
                     {
                         float percentage;
@@ -863,7 +868,7 @@ namespace Oxide.Plugins
             }
             else
             {
-                ConfigData.RemoveS.ES entityS;
+                ConfigData.RemoveS.EntityS entityS;
                 if (configData.removeS.entityS.TryGetValue(targetEntity.ShortPrefabName, out entityS))
                     refund = entityS.refund;
                 if (configData.removeS.refundSlot)
@@ -1037,19 +1042,19 @@ namespace Oxide.Plugins
                 {
                     if (configData.containerS.dropContainerStorage)
                         DropItemContainer(storageContainer.inventory, storageContainer.GetDropPosition(), storageContainer.transform.rotation);
-                    else if (configData.containerS.dropItmesStorage)
+                    else if (configData.containerS.dropItemsStorage)
                         DropUtil.DropItems(storageContainer.inventory, storageContainer.transform.position);
                 }
             }
             else if (targetEntity is ContainerIOEntity)
             {
-                var containerIOEntity = targetEntity as ContainerIOEntity;
-                if (containerIOEntity.inventory?.itemList?.Count > 0)
+                var containerIoEntity = targetEntity as ContainerIOEntity;
+                if (containerIoEntity.inventory?.itemList?.Count > 0)
                 {
-                    if (configData.containerS.dropContainerIOEntity)
-                        DropItemContainer(containerIOEntity.inventory, containerIOEntity.GetDropPosition(), containerIOEntity.transform.rotation);
-                    else if (configData.containerS.dropItmesIOEntity)
-                        DropUtil.DropItems(containerIOEntity.inventory, containerIOEntity.transform.position);
+                    if (configData.containerS.dropContainerIoEntity)
+                        DropItemContainer(containerIoEntity.inventory, containerIoEntity.GetDropPosition(), containerIoEntity.transform.rotation);
+                    else if (configData.containerS.dropItemsIoEntity)
+                        DropUtil.DropItems(containerIoEntity.inventory, containerIoEntity.transform.position);
                 }
             }
             if (shouldPay)
@@ -1083,7 +1088,7 @@ namespace Oxide.Plugins
                 reason = Lang("EntityDisabled", player.UserIDString);
                 return false;
             }
-            var obj = Interface.CallHook("canRemove", player);
+            var obj = Interface.CallHook("canRemove", player, targetEntity);
             if (obj != null)
             {
                 reason = obj is string ? (string)obj : Lang("BeBlocked", player.UserIDString);
@@ -1118,7 +1123,7 @@ namespace Oxide.Plugins
                     return false;
                 }
             }
-            if (!configData.containerS.removeNotEmptyIOEntity && targetEntity is ContainerIOEntity)
+            if (!configData.containerS.removeNotEmptyIoEntity && targetEntity is ContainerIOEntity)
             {
                 if ((targetEntity as ContainerIOEntity).inventory?.itemList?.Count > 0)
                 {
@@ -1147,7 +1152,7 @@ namespace Oxide.Plugins
                 if (AreFriends(targetEntity.OwnerID, player.userID))
                 {
                     if (!configData.globalS.useToolCupboards) return true;
-                    else if (HasTotalAccess(player, targetEntity)) return true;
+                    if (HasTotalAccess(player, targetEntity)) return true;
                 }
             }
             if (configData.globalS.useToolCupboards && HasTotalAccess(player, targetEntity))
@@ -1171,10 +1176,10 @@ namespace Oxide.Plugins
                 }
                 if (buildingRef != null)
                 {
-                    var returnhook = Interface.CallHook("FindBlockData", buildingRef);
-                    if (returnhook != null && returnhook is string)
+                    var obj = Interface.CallHook("FindBlockData", buildingRef);
+                    if (obj != null && obj is string)
                     {
-                        ulong ownerID = ulong.Parse((string)returnhook);
+                        ulong ownerID = ulong.Parse((string)obj);
                         if (AreFriends(ownerID, player.userID))
                             return true;
                     }
@@ -1183,12 +1188,74 @@ namespace Oxide.Plugins
             return false;
         }
 
-        private bool HasTotalAccess(BasePlayer player, BaseEntity targetEntity)
+        private static bool HasTotalAccess(BasePlayer player, BaseEntity targetEntity)
         {
             if (player.IsBuildingBlocked(targetEntity.WorldSpaceBounds()))
+            {
                 return false;
+            }
+            if (configData.globalS.useBuildingLocks && !CanOpenAllLocks(player, targetEntity))
+            {
+                //reason = Lang("Can'tOpenAllLocks", player.UserIDString);
+                return false;
+            }
             return true;
         }
+
+        private static bool CanOpenAllLocks(BasePlayer player, BaseEntity targetEntity)
+        {
+            var decayEntities = Pool.GetList<DecayEntity>();
+            var building = targetEntity.GetBuildingPrivilege()?.GetBuilding() ?? (targetEntity is DecayEntity ? (targetEntity as DecayEntity).GetBuilding() : null);
+            if (building != null)
+            {
+                decayEntities.AddRange(building.decayEntities);
+            }
+            /*else//An entity placed outside
+            {
+                Vis.Entities(targetEntity.transform.position, 9f, decayEntities, Layers.Mask.Construction | Layers.Mask.Deployed);
+            }*/
+            foreach (var decayEntity in decayEntities)
+            {
+                if ((decayEntity is Door || decayEntity is BoxStorage) && decayEntity.OwnerID.IsSteamId())
+                {
+                    var lockEntity = decayEntity.GetSlot(BaseEntity.Slot.Lock);
+                    if (lockEntity != null && !OnTryToOpen(player, lockEntity as BaseLock))
+                    {
+                        Pool.FreeList(ref decayEntities);
+                        return false;
+                    }
+                }
+            }
+            Pool.FreeList(ref decayEntities);
+            return true;
+        }
+
+        private static bool OnTryToOpen(BasePlayer player, BaseLock baseLock)
+        {
+            if (baseLock == null) return true;
+            if (baseLock is CodeLock)
+            {
+                var codeLock = baseLock as CodeLock;
+                var obj = Interface.CallHook("CanUseLockedEntity", player, codeLock);
+                if (obj is bool)
+                {
+                    return (bool)obj;
+                }
+                if (!codeLock.IsLocked())
+                {
+                    return true;
+                }
+                if (codeLock.whitelistPlayers.Contains(player.userID) || codeLock.guestPlayers.Contains(player.userID))
+                {
+                    return true;
+                }
+                return false;
+            }
+            var keyLock = baseLock as KeyLock;
+            return keyLock.OnTryToOpen(player);
+        }
+
+        #region AreFriends
 
         private bool AreFriends(ulong playerID, ulong friendID)
         {
@@ -1230,7 +1297,9 @@ namespace Oxide.Plugins
             return (string)playerClan == (string)friendClan;
         }
 
-        private bool HasStash(BuildingBlock buildingBlock)
+        #endregion AreFriends
+
+        private static bool HasStash(BuildingBlock buildingBlock)
         {
             if (buildingBlock == null) return false;
             if (buildingBlock.ShortPrefabName.Contains("foundation"))
@@ -1244,7 +1313,7 @@ namespace Oxide.Plugins
             return false;
         }
 
-        private bool IsDamagedEntity(BaseEntity entity)
+        private static bool IsDamagedEntity(BaseEntity entity)
         {
             if (configData.fractioned.excludeBuildingBlocks && (entity is BuildingBlock || entity is SimpleBuildingBlock)) return false;
             var baseCombatEntity = entity as BaseCombatEntity;
@@ -1255,11 +1324,11 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private bool IsEntityTimeLimit(BaseEntity entity)
+        private static bool IsEntityTimeLimit(BaseEntity entity)
         {
             if (entity.net == null) return true;
             float spawnedTime;
-            if (entitySpawnedTimes.TryGetValue(entity.net.ID, out spawnedTime))
+            if (rt.entitySpawnedTimes.TryGetValue(entity.net.ID, out spawnedTime))
                 return (Time.realtimeSinceStartup - spawnedTime) > configData.globalS.limitTime;
             return true;
         }
@@ -1273,20 +1342,22 @@ namespace Oxide.Plugins
             int current = 0;
             var checkFrom = new Queue<Vector3>();
             checkFrom.Enqueue(sourceEntity.transform.position);
-            var removeList = new HashSet<BaseEntity>() { sourceEntity };
+            var removeList = new HashSet<BaseEntity> { sourceEntity };
+            var list = Pool.GetList<BaseEntity>();
             while (checkFrom.Count > 0)
             {
                 var position = checkFrom.Dequeue();
-                var list = Pool.GetList<BaseEntity>();
+                list.Clear();
                 Vis.Entities(position, 3f, list, LAYER_ALL);
-                foreach (var entity in list)
+                for (var i = 0; i < list.Count; i++)
                 {
+                    var entity = list[i];
                     if (!removeList.Add(entity)) continue;
                     checkFrom.Enqueue(entity.transform.position);
                 }
-                Pool.FreeList(ref list);
                 if (current++ % configData.globalS.removePerFrame == 0) yield return CoroutineEx.waitForEndOfFrame;
             }
+            Pool.FreeList(ref list);
             if (configData.globalS.noItemContainerDrop)
             {
                 var sortList = new HashSet<BaseEntity>();
@@ -1315,18 +1386,20 @@ namespace Oxide.Plugins
             int current = 0;
             var checkFrom = new Queue<Vector3>();
             checkFrom.Enqueue(sourceEntity.transform.position);
-            var removeList = new HashSet<BaseEntity>() { sourceEntity };
+            var removeList = new HashSet<BaseEntity> { sourceEntity };
             while (checkFrom.Count > 0)
             {
                 var position = checkFrom.Dequeue();
                 var list = Pool.GetList<StabilityEntity>();
                 Vis.Entities(position, 5f, list, Rust.Layers.Mask.Construction);
-                foreach (var entity in list)
+                for (var i = 0; i < list.Count; i++)
                 {
+                    var entity = list[i];
                     if (!IsExternalWall(entity)) continue;
                     if (!removeList.Add(entity)) continue;
                     checkFrom.Enqueue(entity.transform.position);
                 }
+
                 Pool.FreeList(ref list);
                 if (current++ % configData.globalS.removePerFrame == 0) yield return CoroutineEx.waitForEndOfFrame;
             }
@@ -1353,7 +1426,8 @@ namespace Oxide.Plugins
                     {
                         removeList.Add(entity);
                         if (entity is StorageContainer)
-                            DropItemContainer((entity as StorageContainer).inventory, entity.GetDropPosition(), entity.transform.rotation);
+                            DropItemContainer((entity as StorageContainer).inventory, entity.GetDropPosition(),
+                                entity.transform.rotation);
                     }
                 }
             }
@@ -1367,9 +1441,10 @@ namespace Oxide.Plugins
             int current = 0;
             foreach (var entity in entities)
             {
-                if (DoRemove(entity, gibs) && (current++ % configData.globalS.removePerFrame == 0))
+                if (DoRemove(entity, gibs) && current++ % configData.globalS.removePerFrame == 0)
                     yield return CoroutineEx.waitForEndOfFrame;
             }
+
             var toolRemover = player?.GetComponent<ToolRemover>();
             switch (removeType)
             {
@@ -1394,12 +1469,12 @@ namespace Oxide.Plugins
             yield break;
         }
 
-        private bool DoRemove(BaseEntity entity, bool gibs = true)
+        private static bool DoRemove(BaseEntity entity, bool gibs = true)
         {
             if (entity != null && !entity.IsDestroyed)
             {
-                Interface.CallHook("OnRemovedEntity", entity);
                 entity.Kill(gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
+                //Interface.CallHook("OnRemovedEntity", entity);
                 return true;
             }
             return false;
@@ -1555,7 +1630,7 @@ namespace Oxide.Plugins
 
         private ConfigData.PermS GetPermissionS(BasePlayer player)
         {
-            int priority = 0;
+            var priority = 0;
             var permissionS = new ConfigData.PermS();
             foreach (var entry in configData.permS)
             {
@@ -1676,11 +1751,11 @@ namespace Oxide.Plugins
                 Print(arg, $"Syntax error, Please type 'remove.building <price / refund / priceP / refundP> <percentage>', e.g.'remove.building price 60'");
                 return;
             }
+            float value;
             switch (arg.Args[0].ToLower())
             {
                 case "price":
-                    float p = 50f;
-                    float.TryParse(arg.Args[1], out p);
+                    if (!float.TryParse(arg.Args[1], out value)) value = 50f;
                     foreach (var construction in constructions)
                     {
                         if (configData.removeS.buildingBlockS.ContainsKey(construction.info.name.english))
@@ -1689,17 +1764,16 @@ namespace Oxide.Plugins
                             foreach (var entry in buildingGrade)
                             {
                                 var grade = construction.grades[(int)entry.Key];
-                                entry.Value.price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * p / 100));
+                                entry.Value.price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * value / 100));
                             }
                         }
                     }
-                    Print(arg, $"Successfully modified all building prices to {p}% of the initial cost.");
+                    Print(arg, $"Successfully modified all building prices to {value}% of the initial cost.");
                     SaveConfig();
                     return;
 
                 case "refund":
-                    float r = 40f;
-                    float.TryParse(arg.Args[1], out r);
+                    if (!float.TryParse(arg.Args[1], out value)) value = 40f;
                     foreach (var construction in constructions)
                     {
                         if (configData.removeS.buildingBlockS.ContainsKey(construction.info.name.english))
@@ -1708,31 +1782,29 @@ namespace Oxide.Plugins
                             foreach (var entry in buildingGrade)
                             {
                                 var grade = construction.grades[(int)entry.Key];
-                                entry.Value.refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * r / 100));
+                                entry.Value.refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * value / 100));
                             }
                         }
                     }
-                    Print(arg, $"Successfully modified all building refunds to {r}% of the initial cost.");
+                    Print(arg, $"Successfully modified all building refunds to {value}% of the initial cost.");
                     SaveConfig();
                     return;
 
                 case "pricep":
-                    float pp = 40f;
-                    float.TryParse(arg.Args[1], out pp);
-                    foreach (var value in configData.removeS.buildingBlockS.Values)
-                        foreach (var data in value.buildingGradeS.Values)
-                            data.price = pp;
-                    Print(arg, $"Successfully modified all building prices to {pp}% of the initial cost.");
+                    if (!float.TryParse(arg.Args[1], out value)) value = 40f;
+                    foreach (var buildingBlockS in configData.removeS.buildingBlockS.Values)
+                        foreach (var data in buildingBlockS.buildingGradeS.Values)
+                            data.price = value;
+                    Print(arg, $"Successfully modified all building prices to {value}% of the initial cost.");
                     SaveConfig();
                     return;
 
                 case "refundp":
-                    float rr = 50f;
-                    float.TryParse(arg.Args[1], out rr);
-                    foreach (var value in configData.removeS.buildingBlockS.Values)
-                        foreach (var data in value.buildingGradeS.Values)
-                            data.refund = rr;
-                    Print(arg, $"Successfully modified all building refunds to {rr}% of the initial cost.");
+                    if (!float.TryParse(arg.Args[1], out value)) value = 50f;
+                    foreach (var buildingBlockS in configData.removeS.buildingBlockS.Values)
+                        foreach (var data in buildingBlockS.buildingGradeS.Values)
+                            data.refund = value;
+                    Print(arg, $"Successfully modified all building refunds to {value}% of the initial cost.");
                     SaveConfig();
                     return;
 
@@ -1768,12 +1840,14 @@ namespace Oxide.Plugins
                 case "0":
                     removeOverride = true;
                     Print(arg, "Remove is now restricted for all players (exept admins)");
-                    foreach (var toolremover in UnityEngine.Object.FindObjectsOfType<ToolRemover>())
+                    foreach (var p in BasePlayer.activePlayerList)
                     {
-                        if (toolremover.removeType == RemoveType.Normal && toolremover.canOverride)
+                        var toolRemover = p.GetComponent<ToolRemover>();
+                        if (toolRemover == null) continue;
+                        if (toolRemover.removeType == RemoveType.Normal && toolRemover.canOverride)
                         {
-                            Print(toolremover.player, "The remover tool has been disabled by the admin");
-                            UnityEngine.Object.Destroy(toolremover);
+                            Print(toolRemover.player, "The remover tool has been disabled by the admin");
+                            UnityEngine.Object.Destroy(toolRemover);
                         }
                     }
                     return;
@@ -1790,7 +1864,7 @@ namespace Oxide.Plugins
 
         private void UpdateConfig()
         {
-            var buildingGrades = new BuildingGrade.Enum[] { BuildingGrade.Enum.Twigs, BuildingGrade.Enum.Wood, BuildingGrade.Enum.Stone, BuildingGrade.Enum.Metal, BuildingGrade.Enum.TopTier };
+            var buildingGrades = new[] { BuildingGrade.Enum.Twigs, BuildingGrade.Enum.Wood, BuildingGrade.Enum.Stone, BuildingGrade.Enum.Metal, BuildingGrade.Enum.TopTier };
             foreach (var @enum in buildingGrades)
                 if (!configData.removeS.validConstruction.ContainsKey(@enum))
                     configData.removeS.validConstruction.Add(@enum, true);
@@ -1799,18 +1873,18 @@ namespace Oxide.Plugins
             {
                 if (!configData.removeS.buildingBlockS.ContainsKey(construction.info.name.english))
                 {
-                    var buildingGrade = new Dictionary<BuildingGrade.Enum, ConfigData.RemoveS.BBS.BGS>();
+                    var buildingGrade = new Dictionary<BuildingGrade.Enum, ConfigData.RemoveS.BuildingBlocksS.BuildingGradeS>();
                     foreach (var @enum in buildingGrades)
                     {
                         var grade = construction.grades[(int)@enum];
-                        buildingGrade.Add(@enum, new ConfigData.RemoveS.BBS.BGS { refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * 0.4f)), price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * 0.6f)) });
+                        buildingGrade.Add(@enum, new ConfigData.RemoveS.BuildingBlocksS.BuildingGradeS { refund = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * 0.4f)), price = grade.costToBuild.ToDictionary(x => x.itemDef.shortname, y => Mathf.RoundToInt(y.amount * 0.6f)) });
                     }
-                    configData.removeS.buildingBlockS.Add(construction.info.name.english, new ConfigData.RemoveS.BBS { displayName = construction.info.name.english, buildingGradeS = buildingGrade });
+                    configData.removeS.buildingBlockS.Add(construction.info.name.english, new ConfigData.RemoveS.BuildingBlocksS { displayName = construction.info.name.english, buildingGradeS = buildingGrade });
                 }
             }
             foreach (var entry in shorPrefabNameToDeployable)
                 if (!configData.removeS.entityS.ContainsKey(entry.Key))
-                    configData.removeS.entityS.Add(entry.Key, new ConfigData.RemoveS.ES { enabled = true, displayName = ItemManager.FindItemDefinition(entry.Value)?.displayName?.english ?? string.Empty, refund = new Dictionary<string, int> { [entry.Value] = 1 }, price = new Dictionary<string, int>() });
+                    configData.removeS.entityS.Add(entry.Key, new ConfigData.RemoveS.EntityS { enabled = true, displayName = ItemManager.FindItemDefinition(entry.Value)?.displayName?.english ?? string.Empty, refund = new Dictionary<string, int> { [entry.Value] = 1 }, price = new Dictionary<string, int>() });
             SaveConfig();
         }
 
@@ -1834,6 +1908,9 @@ namespace Oxide.Plugins
 
                 [JsonProperty(PropertyName = "Use Entity Owners")]
                 public bool useEntityOwners = true;
+
+                [JsonProperty(PropertyName = "Use Building Locks")]
+                public bool useBuildingLocks = false;
 
                 [JsonProperty(PropertyName = "Use Tool Cupboards (Strongly unrecommended)")]
                 public bool useToolCupboards = false;
@@ -1878,19 +1955,19 @@ namespace Oxide.Plugins
                 public bool removeNotEmptyStorage = true;
 
                 [JsonProperty(PropertyName = "Storage Container - Drop items from container")]
-                public bool dropItmesStorage = false;
+                public bool dropItemsStorage = false;
 
                 [JsonProperty(PropertyName = "Storage Container - Drop a item container from container")]
                 public bool dropContainerStorage = true;
 
                 [JsonProperty(PropertyName = "IOEntity Container - Enable remove of not empty storages")]
-                public bool removeNotEmptyIOEntity = true;
+                public bool removeNotEmptyIoEntity = true;
 
                 [JsonProperty(PropertyName = "IOEntity Container - Drop items from container")]
-                public bool dropItmesIOEntity = false;
+                public bool dropItemsIoEntity = false;
 
                 [JsonProperty(PropertyName = "IOEntity Container - Drop a item container from container")]
-                public bool dropContainerIOEntity = true;
+                public bool dropContainerIoEntity = true;
             }
 
             [JsonProperty(PropertyName = "Remove Damaged Entities")]
@@ -1927,7 +2004,7 @@ namespace Oxide.Plugins
             }
 
             [JsonProperty(PropertyName = "Permission Settings (Just for normal type)")]
-            public Dictionary<string, PermS> permS = new Dictionary<string, PermS>()
+            public Dictionary<string, PermS> permS = new Dictionary<string, PermS>
             {
                 [PERMISSION_NORMAL] = new PermS { priority = 0, distance = 3, cooldown = 60, maxTime = 300, maxRemovable = 50, removeInterval = 0.8f, pay = true, refund = true, resetTime = false }
             };
@@ -1963,7 +2040,7 @@ namespace Oxide.Plugins
             }
 
             [JsonProperty(PropertyName = "Remove Type Settings")]
-            public Dictionary<RemoveType, RemoveTypeS> removeTypeS = new Dictionary<RemoveType, RemoveTypeS>()
+            public Dictionary<RemoveType, RemoveTypeS> removeTypeS = new Dictionary<RemoveType, RemoveTypeS>
             {
                 [RemoveType.Normal] = new RemoveTypeS { displayName = RemoveType.Normal.ToString(), distance = 3, gibs = true, defaultTime = 60, maxTime = 300, resetTime = false },
                 [RemoveType.Structure] = new RemoveTypeS { displayName = RemoveType.Structure.ToString(), distance = 100, gibs = false, defaultTime = 300, maxTime = 600, resetTime = true },
@@ -2039,20 +2116,23 @@ namespace Oxide.Plugins
             }
 
             [JsonProperty(PropertyName = "Image Urls (Used to UI image)")]
-            public Dictionary<string, string> imageUrls = new Dictionary<string, string>()
+            public Dictionary<string, string> imageUrls = new Dictionary<string, string>
             {
                 ["Economics"] = "https://i.imgur.com/znPwdcv.png",
-                ["ServerRewards"] = "https://i.imgur.com/04rJsV3.png",
+                ["ServerRewards"] = "https://i.imgur.com/04rJsV3.png"
             };
 
             [JsonProperty(PropertyName = "Display Names Of Other Things")]
             public Dictionary<string, string> displayNames = new Dictionary<string, string>();
 
             [JsonProperty(PropertyName = "GUI")]
-            public UISettings uiS = new UISettings();
+            public UiSettings uiS = new UiSettings();
 
-            public class UISettings
+            public class UiSettings
             {
+                [JsonProperty(PropertyName = "Enabled")]
+                public bool enabled = true;
+
                 [JsonProperty(PropertyName = "Main Box - Min Anchor (in Rust Window)")]
                 public string removerToolAnchorMin = "0.1 0.55";
 
@@ -2261,17 +2341,17 @@ namespace Oxide.Plugins
                 public Dictionary<BuildingGrade.Enum, bool> validConstruction = new Dictionary<BuildingGrade.Enum, bool>();
 
                 [JsonProperty(PropertyName = "Building Blocks Settings")]
-                public Dictionary<string, BBS> buildingBlockS = new Dictionary<string, BBS>();
+                public Dictionary<string, BuildingBlocksS> buildingBlockS = new Dictionary<string, BuildingBlocksS>();
 
-                public class BBS
+                public class BuildingBlocksS
                 {
                     [JsonProperty(PropertyName = "Display Name")]
                     public string displayName;
 
                     [JsonProperty(PropertyName = "Building Grade")]
-                    public Dictionary<BuildingGrade.Enum, BGS> buildingGradeS = new Dictionary<BuildingGrade.Enum, BGS>();
+                    public Dictionary<BuildingGrade.Enum, BuildingGradeS> buildingGradeS = new Dictionary<BuildingGrade.Enum, BuildingGradeS>();
 
-                    public class BGS
+                    public class BuildingGradeS
                     {
                         [JsonProperty(PropertyName = "Price")]
                         public object price;
@@ -2282,9 +2362,9 @@ namespace Oxide.Plugins
                 }
 
                 [JsonProperty(PropertyName = "Other Entity Settings")]
-                public Dictionary<string, ES> entityS = new Dictionary<string, ES>();
+                public Dictionary<string, EntityS> entityS = new Dictionary<string, EntityS>();
 
-                public class ES
+                public class EntityS
                 {
                     [JsonProperty(PropertyName = "Remove Allowed")]
                     public bool enabled = false;
@@ -2332,14 +2412,12 @@ namespace Oxide.Plugins
 
         private void Print(BasePlayer player, string message)
         {
-            if (string.IsNullOrEmpty(configData.chatS.prefix))
-                Player.Message(player, message, string.Empty, configData.chatS.steamIDIcon);
-            else Player.Message(player, message, $"<color={configData.chatS.prefixColor}>{configData.chatS.prefix}</color>", configData.chatS.steamIDIcon);
+            Player.Message(player, message, string.IsNullOrEmpty(configData.chatS.prefix) ? string.Empty : $"<color={configData.chatS.prefixColor}>{configData.chatS.prefix}</color>", configData.chatS.steamIDIcon);
         }
 
         private void Print(ConsoleSystem.Arg arg, string message)
         {
-            var player = arg?.Player();
+            var player = arg.Player();
             if (player == null) Puts(message);
             else PrintToConsole(player, message);
         }
@@ -2352,9 +2430,9 @@ namespace Oxide.Plugins
             {
                 ["NotAllowed"] = "You don't have '{0}' permission to use this command.",
                 ["TargetDisabled"] = "{0}'s Remover Tool has been disabled.",
-                ["TargetEnabled"] = "{0} is now using Remover Tool; Enabled for {1} seconds (Max Removeable Objects: {2}, Remove Type: {3}).",
+                ["TargetEnabled"] = "{0} is now using Remover Tool; Enabled for {1} seconds (Max Removable Objects: {2}, Remove Type: {3}).",
                 ["ToolDisabled"] = "Remover Tool has been disabled.",
-                ["ToolEnabled"] = "Remover Tool enabled for {0} seconds (Max Removeable Objects: {1}, Remove Type: {2}).",
+                ["ToolEnabled"] = "Remover Tool enabled for {0} seconds (Max Removable Objects: {1}, Remove Type: {2}).",
                 ["Cooldown"] = "You need to wait {0} seconds before using Remover Tool again.",
                 ["CurrentlyDisabled"] = "Remover Tool is currently disabled.",
                 ["EntityLimit"] = "Entity limit reached, you have removed {0} entities, Remover Tool was automatically disabled.",
@@ -2383,6 +2461,7 @@ namespace Oxide.Plugins
                 ["NotExternalWall"] = "Can't remove: The entity is not an external wall.",
                 ["HasStash"] = "Can't remove: There are stashes under the foundation.",
                 ["EntityTimeLimit"] = "Can't remove: The entity was built more than {0} seconds ago.",
+                //["Can'tOpenAllLocks"] = "Can't remove: There is a lock in the building that you cannot open.",
                 ["CantPay"] = "Can't remove: Paying system crashed! Contact an administrator with the time and date to help him understand what happened.",
 
                 ["Refund"] = "Refund:",
@@ -2436,6 +2515,7 @@ namespace Oxide.Plugins
                 ["NotExternalWall"] = "无法拆除该实体: 该实体不是外高墙",
                 ["HasStash"] = "无法拆除该实体: 地基下藏有小藏匿",
                 ["EntityTimeLimit"] = "无法拆除该实体: 该实体的存活时间大于 {0} 秒",
+                //["Can'tOpenAllLocks"] = "无法拆除该实体: 该建筑中有您无法打开的锁",
                 ["CantPay"] = "无法拆除该实体: 支付失败，请联系管理员，告诉他详情",
 
                 ["Refund"] = "退还:",
