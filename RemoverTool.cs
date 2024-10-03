@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.35", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.36", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -373,7 +373,7 @@ namespace Oxide.Plugins
 
         private static void DropItemContainer(ItemContainer itemContainer, Vector3 position, Quaternion rotation)
         {
-            itemContainer?.Drop(PREFAB_ITEM_DROP, position, rotation);
+            itemContainer?.Drop(PREFAB_ITEM_DROP, position, rotation, 0);
         }
 
         private static bool IsExternalWall(StabilityEntity stabilityEntity)
@@ -1144,19 +1144,6 @@ namespace Oxide.Plugins
                 BaseEntity target = null;
                 List<RaycastHit> hitInfos = Pool.GetList<RaycastHit>();
                 GamePhysics.TraceAll(Player.eyes.HeadRay(), 0f, hitInfos, _distance, LAYER_TARGET);
-
-                // StringBuilder sb = new StringBuilder();
-                // sb.AppendLine($"count: {hitInfos.Count}");
-                // foreach (var hitInfo in hitInfos)
-                // {
-                //     var hitEntity = hitInfo.GetEntity();
-                //     if (hitEntity != null)
-                //     {
-                //         sb.AppendLine($"{hitEntity.ShortPrefabName} - {Player.Distance(hitEntity)}");
-                //     }
-                // }
-                // _instance.Print(Player, sb.ToString());
-
                 foreach (var hitInfo in hitInfos)
                 {
                     var hitEntity = hitInfo.GetEntity();
@@ -1268,7 +1255,7 @@ namespace Oxide.Plugins
 
             private void UnEquip()
             {
-                //player.lastReceivedTick.activeItem = 0;
+                // Player.lastReceivedTick.activeItem = 0;
                 var activeItem = Player.GetActiveItem();
                 if (activeItem?.GetHeldEntity() is HeldEntity)
                 {
@@ -1362,66 +1349,75 @@ namespace Oxide.Plugins
                 Print(player, Lang("InvalidEntity", player.UserIDString));
                 return false;
             }
-            switch (removeType)
+            if (removeType != RemoveType.Normal)
             {
-                case RemoveType.Admin:
+                var result = Interface.CallHook("CanAdminRemove", player, targetEntity, removeType.ToString());
+                if (result != null)
                 {
-                    var target = targetEntity as BasePlayer;
-                    if (target != null)
+                    Print(player, result is string ? (string)result : Lang("BeBlocked", player.UserIDString));
+                    return false;
+                }
+                switch (removeType)
+                {
+                    case RemoveType.Admin:
                     {
-                        if (target.userID.IsSteamId() && target.IsConnected)
+                        var target = targetEntity as BasePlayer;
+                        if (target != null)
                         {
-                            target.Kick("From RemoverTool Plugin");
-                            return true;
+                            if (target.userID.IsSteamId() && target.IsConnected)
+                            {
+                                target.Kick("From RemoverTool Plugin");
+                                return true;
+                            }
                         }
+                        DoRemove(targetEntity, _configData.removeType[RemoveType.Admin].gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
+                        return true;
                     }
-                    DoRemove(targetEntity, _configData.removeType[RemoveType.Admin].gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
-                    return true;
-                }
-                case RemoveType.All:
-                {
-                    if (_removeAllCoroutine != null)
+                    case RemoveType.All:
                     {
-                        Print(player, Lang("AlreadyRemoveAll", player.UserIDString));
-                        return false;
+                        if (_removeAllCoroutine != null)
+                        {
+                            Print(player, Lang("AlreadyRemoveAll", player.UserIDString));
+                            return false;
+                        }
+                        _removeAllCoroutine = ServerMgr.Instance.StartCoroutine(RemoveAll(targetEntity, player));
+                        Print(player, Lang("StartRemoveAll", player.UserIDString));
+                        return true;
                     }
-                    _removeAllCoroutine = ServerMgr.Instance.StartCoroutine(RemoveAll(targetEntity, player));
-                    Print(player, Lang("StartRemoveAll", player.UserIDString));
-                    return true;
-                }
-                case RemoveType.External:
-                {
-                    var stabilityEntity = targetEntity as StabilityEntity;
-                    if (stabilityEntity == null || !IsExternalWall(stabilityEntity))
+                    case RemoveType.External:
                     {
-                        Print(player, Lang("NotExternalWall", player.UserIDString));
-                        return false;
+                        var stabilityEntity = targetEntity as StabilityEntity;
+                        if (stabilityEntity == null || !IsExternalWall(stabilityEntity))
+                        {
+                            Print(player, Lang("NotExternalWall", player.UserIDString));
+                            return false;
+                        }
+                        if (_removeExternalCoroutine != null)
+                        {
+                            Print(player, Lang("AlreadyRemoveExternal", player.UserIDString));
+                            return false;
+                        }
+                        _removeExternalCoroutine = ServerMgr.Instance.StartCoroutine(RemoveExternal(stabilityEntity, player));
+                        Print(player, Lang("StartRemoveExternal", player.UserIDString));
+                        return true;
                     }
-                    if (_removeExternalCoroutine != null)
+                    case RemoveType.Structure:
                     {
-                        Print(player, Lang("AlreadyRemoveExternal", player.UserIDString));
-                        return false;
+                        var decayEntity = targetEntity as DecayEntity;
+                        if (decayEntity == null)
+                        {
+                            Print(player, Lang("NotStructure", player.UserIDString));
+                            return false;
+                        }
+                        if (_removeStructureCoroutine != null)
+                        {
+                            Print(player, Lang("AlreadyRemoveStructure", player.UserIDString));
+                            return false;
+                        }
+                        _removeStructureCoroutine = ServerMgr.Instance.StartCoroutine(RemoveStructure(decayEntity, player));
+                        Print(player, Lang("StartRemoveStructure", player.UserIDString));
+                        return true;
                     }
-                    _removeExternalCoroutine = ServerMgr.Instance.StartCoroutine(RemoveExternal(stabilityEntity, player));
-                    Print(player, Lang("StartRemoveExternal", player.UserIDString));
-                    return true;
-                }
-                case RemoveType.Structure:
-                {
-                    var decayEntity = targetEntity as DecayEntity;
-                    if (decayEntity == null)
-                    {
-                        Print(player, Lang("NotStructure", player.UserIDString));
-                        return false;
-                    }
-                    if (_removeStructureCoroutine != null)
-                    {
-                        Print(player, Lang("AlreadyRemoveStructure", player.UserIDString));
-                        return false;
-                    }
-                    _removeStructureCoroutine = ServerMgr.Instance.StartCoroutine(RemoveStructure(decayEntity, player));
-                    Print(player, Lang("StartRemoveStructure", player.UserIDString));
-                    return true;
                 }
             }
 
@@ -2794,6 +2790,7 @@ namespace Oxide.Plugins
                     case "h":
                     case "help":
                         var stringBuilder = Pool.Get<StringBuilder>();
+                        stringBuilder.Clear();
                         stringBuilder.AppendLine(Lang("Syntax", player.UserIDString, _configData.chat.command, GetRemoveTypeName(RemoveType.Normal)));
                         stringBuilder.AppendLine(Lang("Syntax1", player.UserIDString, _configData.chat.command, GetRemoveTypeName(RemoveType.Admin)));
                         stringBuilder.AppendLine(Lang("Syntax2", player.UserIDString, _configData.chat.command, GetRemoveTypeName(RemoveType.All)));
@@ -2926,6 +2923,7 @@ namespace Oxide.Plugins
             if (arg.Args == null || arg.Args.Length <= 1)
             {
                 var stringBuilder = Pool.Get<StringBuilder>();
+                stringBuilder.Clear();
                 stringBuilder.AppendLine("Syntax error of target command");
                 stringBuilder.AppendLine("remove.target <disable | d> <player (name or id)> - Disable remover tool for player");
                 stringBuilder.AppendLine("remove.target <normal | n> <player (name or id)> [time (seconds)] [max removable objects (integer)] - Enable remover tool for player (Normal)");
@@ -2992,6 +2990,7 @@ namespace Oxide.Plugins
 
                 default:
                     var stringBuilder = Pool.Get<StringBuilder>();
+                    stringBuilder.Clear();
                     stringBuilder.AppendLine("Syntax error of target command");
                     stringBuilder.AppendLine("remove.target <disable | d> <player (name or id)> - Disable remover tool for player");
                     stringBuilder.AppendLine("remove.target <normal | n> <player (name or id)> [time (seconds)] [max removable objects (integer)] - Enable remover tool for player (Normal)");
@@ -3166,6 +3165,7 @@ namespace Oxide.Plugins
             if (arg.Args == null || arg.Args.Length <= 1 || !arg.IsAdmin)
             {
                 var stringBuilder = Pool.Get<StringBuilder>();
+                stringBuilder.Clear();
                 stringBuilder.AppendLine("Syntax error of remove.playerentity command");
                 stringBuilder.AppendLine("remove.playerentity <all | a> <player id> - Remove all entities of the player");
                 stringBuilder.AppendLine("remove.playerentity <building | b> <player id> - Remove all buildings of the player");
@@ -4361,7 +4361,7 @@ namespace Oxide.Plugins
             }
             catch (Exception ex)
             {
-                PrintError($"GetConfigValuePre ERROR: path: {string.Join("\\", path)}\n{ex}");
+                PrintError($"GetConfigValue ERROR: path: {string.Join("\\", path)}\n{ex}");
             }
             return null;
         }
