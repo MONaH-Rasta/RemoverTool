@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.40", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.41", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -1844,7 +1844,7 @@ namespace Oxide.Plugins
                             if (currentGrade != null)
                             {
                                 var price = new Dictionary<string, CurrencyInfo>();
-                                var costToBuild = buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade);
+                                var costToBuild = buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild();
                                 foreach (var itemAmount in costToBuild)
                                 {
                                     var amount = Mathf.RoundToInt(itemAmount.amount * buildingGradeSettings.pricePercentage / 100);
@@ -1863,7 +1863,7 @@ namespace Oxide.Plugins
                             var currentGrade = buildingBlock.currentGrade;
                             if (currentGrade != null)
                             {
-                                return buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade).ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
+                                return buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild().ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
                             }
                         }
                     }
@@ -2211,7 +2211,7 @@ namespace Oxide.Plugins
                             if (currentGrade != null)
                             {
                                 var refund = new Dictionary<string, CurrencyInfo>();
-                                var costToBuild = buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade);
+                                var costToBuild = buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild();
                                 foreach (var itemAmount in costToBuild)
                                 {
                                     var amount = Mathf.RoundToInt(itemAmount.amount * buildingGradeSettings.refundPercentage / 100);
@@ -2229,7 +2229,7 @@ namespace Oxide.Plugins
                             var currentGrade = buildingBlock.currentGrade;
                             if (currentGrade != null)
                             {
-                                return buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild(buildingBlock.grade).ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
+                                return buildingBlock.blockDefinition.GetGrade(buildingBlock.grade, buildingBlock.skinID).CostToBuild().ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount)));
                             }
                         }
                     }
@@ -3047,13 +3047,14 @@ namespace Oxide.Plugins
                             foreach (var entry in buildingBlocksSettings.buildingGrade)
                             {
                                 var grade = construction.GetGrade(entry.Key, 0);
-                                var costToBuild = grade.CostToBuild(entry.Key);
+                                var costToBuild = grade.CostToBuild();
                                 entry.Value.price = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100)));
                             }
                         }
                     }
                     Print(arg, $"Successfully modified all building prices to {value}% of the initial cost.");
                     SaveConfig();
+                    LoadConfig();
                     return;
 
                 case "refund":
@@ -3069,13 +3070,14 @@ namespace Oxide.Plugins
                             foreach (var entry in buildingBlocksSettings.buildingGrade)
                             {
                                 var grade = construction.GetGrade(entry.Key, 0);
-                                var costToBuild = grade.CostToBuild(entry.Key);
+                                var costToBuild = grade.CostToBuild();
                                 entry.Value.refund = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(value <= 0 ? 0 : Mathf.RoundToInt(y.amount * value / 100)));
                             }
                         }
                     }
                     Print(arg, $"Successfully modified all building refunds to {value}% of the initial cost.");
                     SaveConfig();
+                    LoadConfig();
                     return;
 
                 case "pricep":
@@ -3093,6 +3095,7 @@ namespace Oxide.Plugins
 
                     Print(arg, $"Successfully modified all building prices to {value}% of the initial cost.");
                     SaveConfig();
+                    LoadConfig();
                     return;
 
                 case "refundp":
@@ -3110,6 +3113,7 @@ namespace Oxide.Plugins
 
                     Print(arg, $"Successfully modified all building refunds to {value}% of the initial cost.");
                     SaveConfig();
+                    LoadConfig();
                     return;
 
                 default:
@@ -3344,10 +3348,10 @@ namespace Oxide.Plugins
                         if (grade == null)
                         {
                             continue;
-                        }                 
-                        
-                        var costToBuild = grade.CostToBuild(value);
+                        }
 
+                        var costToBuild = grade.CostToBuild();
+                       
                         buildingGrade.Add(value, new BuildingGradeSettings
                         {
                             refund = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount * 0.4f))),
