@@ -14,7 +14,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.24", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.25", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -1363,29 +1363,6 @@ namespace Oxide.Plugins
 
         private bool HasAccess(BasePlayer player, BaseEntity targetEntity)
         {
-            //var excludeTwigs = configData.globalS.excludeTwigs && (targetEntity as BuildingBlock)?.grade == BuildingGrade.Enum.Twigs;
-            if (configData.globalS.useEntityOwners)
-            {
-                if (AreFriends(targetEntity.OwnerID, player.userID))
-                {
-                    if (!configData.globalS.useToolCupboards)
-                    {
-                        return true;
-                    }
-
-                    if (HasTotalAccess(player, targetEntity))
-                    {
-                        return true;
-                    }
-                }
-            }
-            if (configData.globalS.useToolCupboards)
-            {
-                if (HasTotalAccess(player, targetEntity))
-                {
-                    return true;
-                }
-            }
             if (configData.globalS.useBuildingOwners && BuildingOwners != null)
             {
                 var buildingBlock = targetEntity as BuildingBlock;
@@ -1400,6 +1377,30 @@ namespace Oxide.Plugins
                             return true;
                         }
                     }
+                }
+            }
+            //var excludeTwigs = configData.globalS.excludeTwigs && (targetEntity as BuildingBlock)?.grade == BuildingGrade.Enum.Twigs;
+            if (configData.globalS.useEntityOwners)
+            {
+                if (AreFriends(targetEntity.OwnerID, player.userID))
+                {
+                    if (!configData.globalS.useToolCupboards)
+                    {
+                        return true;
+                    }
+                    if (HasTotalAccess(player, targetEntity))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            if (configData.globalS.useToolCupboards)
+            {
+                if (HasTotalAccess(player, targetEntity))
+                {
+                    return true;
                 }
             }
             return false;
@@ -2831,6 +2832,7 @@ namespace Oxide.Plugins
             catch (Exception ex)
             {
                 PrintError($"The configuration file is corrupted. \n{ex}");
+
                 LoadDefaultConfig();
             }
             SaveConfig();
@@ -3127,7 +3129,6 @@ namespace Oxide.Plugins
                     {
                         jToken = new JObject();
                         jObject?.Add(path[i], jToken);
-                        //config.Add(path[i], jToken);
                     }
                 }
                 (jToken as JObject)?.Add(path[path.Length - 1], JToken.FromObject(value));
