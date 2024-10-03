@@ -16,7 +16,7 @@ using VLB;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.26", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.27", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -2317,14 +2317,14 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private string GetConstructionDisplayName(BasePlayer player, string prefabName, string displayName)
+        private string GetConstructionDisplayName(BasePlayer player, string shortPrefabName, string displayName)
         {
             if (RustTranslationAPI != null)
             {
-                displayName = GetConstructionTranslation(lang.GetLanguage(player.UserIDString), prefabName);
-                if (!string.IsNullOrEmpty(displayName))
+                var displayName1 = GetConstructionTranslation(lang.GetLanguage(player.UserIDString), shortPrefabName);
+                if (!string.IsNullOrEmpty(displayName1))
                 {
-                    return displayName;
+                    return displayName1;
                 }
             }
             return displayName;
@@ -2334,10 +2334,10 @@ namespace Oxide.Plugins
         {
             if (RustTranslationAPI != null)
             {
-                displayName = GetDeployableTranslation(lang.GetLanguage(player.UserIDString), deployable);
-                if (!string.IsNullOrEmpty(displayName))
+                var displayName1 = GetDeployableTranslation(lang.GetLanguage(player.UserIDString), deployable);
+                if (!string.IsNullOrEmpty(displayName1))
                 {
-                    return displayName;
+                    return displayName1;
                 }
             }
             return displayName;
