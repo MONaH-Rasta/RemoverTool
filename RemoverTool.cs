@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.21", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.22", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -506,13 +506,18 @@ namespace Oxide.Plugins
             private uint currentItemID;
             private int removeTime;
             private bool resetTime;
+            private Item lastHeldItem;
 
             private void Awake()
             {
                 player = GetComponent<BasePlayer>();
+                currentItemID = player.svActiveItemID;
+                if (removeMode == RemoveMode.HammerHit && configData.removerModeS.hammerHitDisableInHand)
+                {
+                    lastHeldItem = player.GetActiveItem();
+                }
                 if (removeMode == RemoveMode.NoHeld)
                 {
-                    currentItemID = player.svActiveItemID;
                     UnEquip();
                 }
             }
@@ -596,18 +601,31 @@ namespace Oxide.Plugins
                     DisableTool();
                     return;
                 }
-                if (removeMode == RemoveMode.NoHeld && player.svActiveItemID != currentItemID)
+                if (player.svActiveItemID != currentItemID)
                 {
-                    currentItemID = player.svActiveItemID;
-                    if (currentItemID != 0)
+                    if (removeMode == RemoveMode.HammerHit && configData.removerModeS.hammerHitDisableInHand)
                     {
-                        if (configData.removerModeS.disableInHand)
+                        var heldItem = player.GetActiveItem();
+                        if (lastHeldItem?.info.shortname == "hammer" && heldItem?.info.shortname != "hammer")
                         {
                             DisableTool();
                             return;
                         }
-                        UnEquip();
+                        lastHeldItem = heldItem;
                     }
+                    if (removeMode == RemoveMode.NoHeld)
+                    {
+                        if (player.svActiveItemID != 0)
+                        {
+                            if (configData.removerModeS.noHeldDisableInHand)
+                            {
+                                DisableTool();
+                                return;
+                            }
+                            UnEquip();
+                        }
+                    }
+                    currentItemID = player.svActiveItemID;
                 }
                 if (Time.realtimeSinceStartup - lastRemove >= removeInterval)
                 {
@@ -1490,7 +1508,7 @@ namespace Oxide.Plugins
             }
         }
 
-        #region Coroutine Helper
+        #region RemoveEntity Helper
 
         private static IEnumerator GetNearbyEntities<T>(BaseEntity sourceEntity, HashSet<BaseEntity> removeList, int layers, Func<T, bool> filter = null) where T : BaseEntity
         {
@@ -1547,14 +1565,15 @@ namespace Oxide.Plugins
                 {
                     if (!removeList.Add(entity)) continue;
                     var storageContainer = entity as StorageContainer;
-                    if (storageContainer != null)
+                    if (storageContainer != null && storageContainer.inventory?.itemList?.Count > 0)
                     {
-                        if (configData.globalS.noItemContainerDrop) storageContainer.inventory?.Clear();
+                        if (configData.globalS.noItemContainerDrop) storageContainer.inventory.Clear();
                         else DropItemContainer(storageContainer.inventory, storageContainer.GetDropPosition(), storageContainer.transform.rotation);
                     }
                 }
             }
             else removeList.Add(sourceEntity);
+            if (configData.globalS.noItemContainerDrop) ItemManager.DoRemoves();
             yield break;
         }
 
@@ -1577,7 +1596,7 @@ namespace Oxide.Plugins
             }
         }
 
-        #endregion Coroutine Helper
+        #endregion RemoveEntity Helper
 
         #endregion RemoveEntity
 
@@ -1716,6 +1735,16 @@ namespace Oxide.Plugins
                         }
                     }
                 }
+                if (removeMode == RemoveMode.HammerHit && configData.removerModeS.hammerHitRequiresHammer)
+                {
+                    var heldItem = player.GetActiveItem();
+                    if (heldItem.info.shortname != "hammer")
+                    {
+                        Print(player, Lang("HammerNotHeld", player.UserIDString));
+                        return false;
+                    }
+                }
+
                 interval = permissionS.removeInterval;
                 resetTime = permissionS.resetTime;
                 maxTime = permissionS.maxTime;
@@ -2264,7 +2293,7 @@ namespace Oxide.Plugins
                 public bool noHeldMode = true;
 
                 [JsonProperty(PropertyName = "No Held Item Mode - Disable remover tool when you have any item in hand")]
-                public bool disableInHand = true;
+                public bool noHeldDisableInHand = true;
 
                 [JsonProperty(PropertyName = "No Held Item Mode - Show Crosshair")]
                 public bool showCrosshair = true;
@@ -2289,6 +2318,12 @@ namespace Oxide.Plugins
 
                 [JsonProperty(PropertyName = "Hammer Hit Mode")]
                 public bool hammerHitMode = false;
+
+                [JsonProperty(PropertyName = "Hammer Hit Mode - Requires a hammer in your hand when remover tool is enabled")]
+                public bool hammerHitRequiresHammer = false;
+                 
+                [JsonProperty(PropertyName = "Hammer Hit Mode - Disable remover tool when you are not holding a hammer")]
+                public bool hammerHitDisableInHand = true;
 
                 [JsonProperty(PropertyName = "Specific Tool Mode")]
                 public bool specificTool = false;
@@ -2652,12 +2687,23 @@ namespace Oxide.Plugins
 
                 if (configData.version <= new VersionNumber(4, 3, 18))
                 {
-                    configData.removerModeS.crosshairAnchorMin = "0.5 0";
-                    configData.removerModeS.crosshairAnchorMax = "0.5 0";
+                    configData.removerModeS.crosshairAnchorMin = "0.5 0.5";
+                    configData.removerModeS.crosshairAnchorMax = "0.5 0.5";
                     configData.uiS.removerToolAnchorMin = "0 1";
                     configData.uiS.removerToolAnchorMax = "0 1";
                 }
 
+                if (configData.version <= new VersionNumber(4, 3, 22))
+                {
+                    if (configData.removerModeS.crosshairAnchorMin == "0.5 0")
+                    {
+                        configData.removerModeS.crosshairAnchorMin = "0.5 0.5";
+                    }
+                    if (configData.removerModeS.crosshairAnchorMax == "0.5 0")
+                    {
+                        configData.removerModeS.crosshairAnchorMax = "0.5 0.5";
+                    }
+                }
                 configData.version = Version;
             }
         }
@@ -2693,6 +2739,7 @@ namespace Oxide.Plugins
                 ["Cooldown"] = "You need to wait {0} seconds before using Remover Tool again.",
                 ["CurrentlyDisabled"] = "Remover Tool is currently disabled.",
                 ["EntityLimit"] = "Entity limit reached, you have removed {0} entities, Remover Tool was automatically disabled.",
+                ["HammerNotHeld"] = "You need to be holding a hammer in order to use the Remover Tool.",
 
                 ["StartRemoveAll"] = "Start running RemoveAll, please wait.",
                 ["StartRemoveStructure"] = "Start running RemoveStructure, please wait.",
@@ -2747,6 +2794,7 @@ namespace Oxide.Plugins
                 ["Cooldown"] = "您需要等待 {0} 秒才可以再次使用拆除工具",
                 ["CurrentlyDisabled"] = "服务器当前已禁用了拆除工具",
                 ["EntityLimit"] = "您已经拆除了 '{0}' 个实体，拆除工具已自动禁用",
+                ["HammerNotHeld"] = "您必须拿着锤子才可以使用拆除工具",
 
                 ["StartRemoveAll"] = "开始运行 '所有拆除'，请您等待",
                 ["StartRemoveStructure"] = "开始运行 '建筑拆除'，请您等待",
@@ -2800,6 +2848,7 @@ namespace Oxide.Plugins
                 ["Cooldown"] = "Необходимо подождать {0} секунд, прежде чем использовать Remover Tool снова.",
                 ["CurrentlyDisabled"] = "Remover Tool в данный момент отключен.",
                 ["EntityLimit"] = "Достигнут предел, удалено {0} объектов, Remover Tool автоматически отключен.",
+                ["HammerNotHeld"] = "Вы должны держать молоток, чтобы использовать инструмент для удаления.",
 
                 ["StartRemoveAll"] = "Запускается RemoveAll, пожалуйста, подождите.",
                 ["StartRemoveStructure"] = "Запускается RemoveStructure, пожалуйста, подождите.",
