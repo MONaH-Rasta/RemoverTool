@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.36", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.37", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -56,7 +56,7 @@ namespace Oxide.Plugins
         private Coroutine _removePlayerEntityCoroutine;
 
         private StringBuilder _debugStringBuilder;
-        private Hash<uint, float> _entitySpawnedTimes;
+        private Hash<ulong, float> _entitySpawnedTimes;
         private readonly Hash<ulong, float> _cooldownTimes = new Hash<ulong, float>();
 
         private enum RemoveMode
@@ -162,7 +162,7 @@ namespace Oxide.Plugins
 
             if (_configData.global.entityTimeLimit)
             {
-                _entitySpawnedTimes = new Hash<uint, float>();
+                _entitySpawnedTimes = new Hash<ulong, float>();
                 Subscribe(nameof(OnEntitySpawned));
                 Subscribe(nameof(OnEntityKill));
             }
@@ -259,7 +259,7 @@ namespace Oxide.Plugins
                 return;
             }
             // if (!CanEntityBeSaved(entity)) return;
-            _entitySpawnedTimes[entity.net.ID] = Time.realtimeSinceStartup;
+            _entitySpawnedTimes[entity.net.ID.Value] = Time.realtimeSinceStartup;
         }
 
         private void OnEntityKill(BaseEntity entity)
@@ -268,7 +268,7 @@ namespace Oxide.Plugins
             {
                 return;
             }
-            _entitySpawnedTimes.Remove(entity.net.ID);
+            _entitySpawnedTimes.Remove(entity.net.ID.Value);
         }
 
         private object OnPlayerAttack(BasePlayer player, HitInfo info)
@@ -1029,7 +1029,7 @@ namespace Oxide.Plugins
 
             private int _timeLeft;
             private float _lastRemove;
-            private uint _currentItemId;
+            private ItemId _currentItemId;
             private bool _disableInHand;
 
             private Item _lastHeldItem;
@@ -1192,7 +1192,7 @@ namespace Oxide.Plugins
                     }
                     if (_removeMode == RemoveMode.NoHeld)
                     {
-                        if (Player.svActiveItemID != 0)
+                        if (Player.svActiveItemID.IsValid)
                         {
                             if (_configData.removerMode.noHeldDisableInHand)
                             {
@@ -1360,64 +1360,64 @@ namespace Oxide.Plugins
                 switch (removeType)
                 {
                     case RemoveType.Admin:
-                    {
-                        var target = targetEntity as BasePlayer;
-                        if (target != null)
                         {
-                            if (target.userID.IsSteamId() && target.IsConnected)
+                            var target = targetEntity as BasePlayer;
+                            if (target != null)
                             {
-                                target.Kick("From RemoverTool Plugin");
-                                return true;
+                                if (target.userID.IsSteamId() && target.IsConnected)
+                                {
+                                    target.Kick("From RemoverTool Plugin");
+                                    return true;
+                                }
                             }
+                            DoRemove(targetEntity, _configData.removeType[RemoveType.Admin].gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
+                            return true;
                         }
-                        DoRemove(targetEntity, _configData.removeType[RemoveType.Admin].gibs ? BaseNetworkable.DestroyMode.Gib : BaseNetworkable.DestroyMode.None);
-                        return true;
-                    }
                     case RemoveType.All:
-                    {
-                        if (_removeAllCoroutine != null)
                         {
-                            Print(player, Lang("AlreadyRemoveAll", player.UserIDString));
-                            return false;
+                            if (_removeAllCoroutine != null)
+                            {
+                                Print(player, Lang("AlreadyRemoveAll", player.UserIDString));
+                                return false;
+                            }
+                            _removeAllCoroutine = ServerMgr.Instance.StartCoroutine(RemoveAll(targetEntity, player));
+                            Print(player, Lang("StartRemoveAll", player.UserIDString));
+                            return true;
                         }
-                        _removeAllCoroutine = ServerMgr.Instance.StartCoroutine(RemoveAll(targetEntity, player));
-                        Print(player, Lang("StartRemoveAll", player.UserIDString));
-                        return true;
-                    }
                     case RemoveType.External:
-                    {
-                        var stabilityEntity = targetEntity as StabilityEntity;
-                        if (stabilityEntity == null || !IsExternalWall(stabilityEntity))
                         {
-                            Print(player, Lang("NotExternalWall", player.UserIDString));
-                            return false;
+                            var stabilityEntity = targetEntity as StabilityEntity;
+                            if (stabilityEntity == null || !IsExternalWall(stabilityEntity))
+                            {
+                                Print(player, Lang("NotExternalWall", player.UserIDString));
+                                return false;
+                            }
+                            if (_removeExternalCoroutine != null)
+                            {
+                                Print(player, Lang("AlreadyRemoveExternal", player.UserIDString));
+                                return false;
+                            }
+                            _removeExternalCoroutine = ServerMgr.Instance.StartCoroutine(RemoveExternal(stabilityEntity, player));
+                            Print(player, Lang("StartRemoveExternal", player.UserIDString));
+                            return true;
                         }
-                        if (_removeExternalCoroutine != null)
-                        {
-                            Print(player, Lang("AlreadyRemoveExternal", player.UserIDString));
-                            return false;
-                        }
-                        _removeExternalCoroutine = ServerMgr.Instance.StartCoroutine(RemoveExternal(stabilityEntity, player));
-                        Print(player, Lang("StartRemoveExternal", player.UserIDString));
-                        return true;
-                    }
                     case RemoveType.Structure:
-                    {
-                        var decayEntity = targetEntity as DecayEntity;
-                        if (decayEntity == null)
                         {
-                            Print(player, Lang("NotStructure", player.UserIDString));
-                            return false;
+                            var decayEntity = targetEntity as DecayEntity;
+                            if (decayEntity == null)
+                            {
+                                Print(player, Lang("NotStructure", player.UserIDString));
+                                return false;
+                            }
+                            if (_removeStructureCoroutine != null)
+                            {
+                                Print(player, Lang("AlreadyRemoveStructure", player.UserIDString));
+                                return false;
+                            }
+                            _removeStructureCoroutine = ServerMgr.Instance.StartCoroutine(RemoveStructure(decayEntity, player));
+                            Print(player, Lang("StartRemoveStructure", player.UserIDString));
+                            return true;
                         }
-                        if (_removeStructureCoroutine != null)
-                        {
-                            Print(player, Lang("AlreadyRemoveStructure", player.UserIDString));
-                            return false;
-                        }
-                        _removeStructureCoroutine = ServerMgr.Instance.StartCoroutine(RemoveStructure(decayEntity, player));
-                        Print(player, Lang("StartRemoveStructure", player.UserIDString));
-                        return true;
-                    }
                 }
             }
 
@@ -1684,7 +1684,7 @@ namespace Oxide.Plugins
                 return true;
             }
             float spawnedTime;
-            if (_instance._entitySpawnedTimes.TryGetValue(entity.net.ID, out spawnedTime))
+            if (_instance._entitySpawnedTimes.TryGetValue(entity.net.ID.Value, out spawnedTime))
             {
                 return Time.realtimeSinceStartup - spawnedTime > _configData.global.limitTime;
             }
@@ -2015,13 +2015,13 @@ namespace Oxide.Plugins
                     return true;
 
                 default:
-                {
-                    var result = Interface.CallHook("OnRemovableEntityCheckOrPay", targetEntity, player, itemName, currencyInfo.Amount, currencyInfo.SkinId, check);
-                    if (result is bool)
                     {
-                        return (bool)result;
+                        var result = Interface.CallHook("OnRemovableEntityCheckOrPay", targetEntity, player, itemName, currencyInfo.Amount, currencyInfo.SkinId, check);
+                        if (result is bool)
+                        {
+                            return (bool)result;
+                        }
                     }
-                }
 
                     return true;
             }
@@ -2136,42 +2136,42 @@ namespace Oxide.Plugins
                     switch (itemName.ToLower())
                     {
                         case ECONOMICS_KEY:
-                        {
-                            if (Economics == null)
                             {
-                                continue;
+                                if (Economics == null)
+                                {
+                                    continue;
+                                }
+                                var result = Economics.Call("Deposit", player.userID, (double)currencyInfo.Amount);
+                                if (result != null)
+                                {
+                                    flag = true;
+                                }
+                                break;
                             }
-                            var result = Economics.Call("Deposit", player.userID, (double)currencyInfo.Amount);
-                            if (result != null)
-                            {
-                                flag = true;
-                            }
-                            break;
-                        }
 
                         case SERVER_REWARDS_KEY:
-                        {
-                            if (ServerRewards == null)
                             {
-                                continue;
+                                if (ServerRewards == null)
+                                {
+                                    continue;
+                                }
+                                var result = ServerRewards.Call("AddPoints", player.userID, currencyInfo.Amount);
+                                if (result != null)
+                                {
+                                    flag = true;
+                                }
+                                break;
                             }
-                            var result = ServerRewards.Call("AddPoints", player.userID, currencyInfo.Amount);
-                            if (result != null)
-                            {
-                                flag = true;
-                            }
-                            break;
-                        }
 
                         default:
-                        {
-                            var result = Interface.CallHook("OnRemovableEntityGiveRefund", targetEntity, player, itemName, currencyInfo.Amount, currencyInfo.SkinId);
-                            if (result == null)
                             {
-                                flag = true;
+                                var result = Interface.CallHook("OnRemovableEntityGiveRefund", targetEntity, player, itemName, currencyInfo.Amount, currencyInfo.SkinId);
+                                if (result == null)
+                                {
+                                    flag = true;
+                                }
+                                break;
                             }
-                            break;
-                        }
                     }
 
                     if (!flag)
