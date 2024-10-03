@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.1", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.2", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -921,14 +921,14 @@ namespace Oxide.Plugins
                 var buildingBlock = targetEntity.GetComponent<BuildingBlock>();
                 if (buildingBlock != null)
                 {
-                    if (configData.raidBlocker.blockTime > (Time.realtimeSinceStartup - lastAttackedBuildings[buildingBlock.buildingID]))
-                        return true;
+                    timeLeft = configData.raidBlocker.blockTime - (Time.realtimeSinceStartup - lastAttackedBuildings[buildingBlock.buildingID]);
+                    if (timeLeft > 0) return true;
                 }
             }
             if (configData.raidBlocker.blockPlayers)
             {
-                if (configData.raidBlocker.blockTime > (Time.realtimeSinceStartup - lastBlockedPlayers[player.userID]))
-                    return true;
+                timeLeft = configData.raidBlocker.blockTime - (Time.realtimeSinceStartup - lastBlockedPlayers[player.userID]);
+                if (timeLeft > 0) return true;
             }
             return false;
         }
