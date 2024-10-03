@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.4", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.5", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -365,10 +365,10 @@ namespace Oxide.Plugins
             CuiHelper.AddUi(player, container);
         }
 
-        private static void PricesUpdate(BasePlayer player, bool usePrice, BaseEntity targetEntity, bool canRemove)
+        private static void PricesUpdate(BasePlayer player, bool usePrice, BaseEntity targetEntity)
         {
             CuiHelper.DestroyUi(player, UINAME_PRICE);
-            if (!canRemove) return;
+            if (targetEntity == null || !IsValidEntity(targetEntity)) return;
             var price = new Dictionary<string, int>();
             if (usePrice) price = rt.GetPrice(targetEntity);
             var container = UI.CreateElementContainer(UINAME_MAIN, UINAME_PRICE, configData.uiS.priceBackgroundColor, configData.uiS.priceAnchorMin, configData.uiS.priceAnchorMax);
@@ -396,10 +396,10 @@ namespace Oxide.Plugins
             CuiHelper.AddUi(player, container);
         }
 
-        private static void RefundUpdate(BasePlayer player, bool useRefund, BaseEntity targetEntity, bool canRemove)
+        private static void RefundUpdate(BasePlayer player, bool useRefund, BaseEntity targetEntity)
         {
             CuiHelper.DestroyUi(player, UINAME_REFUND);
-            if (!canRemove) return;
+            if (targetEntity == null || !IsValidEntity(targetEntity)) return;
             var refund = new Dictionary<string, int>();
             if (useRefund) refund = rt.GetRefund(targetEntity);
             var container = UI.CreateElementContainer(UINAME_MAIN, UINAME_REFUND, configData.uiS.refundBackgroundColor, configData.uiS.refundAnchorMin, configData.uiS.refundAnchorMax);
@@ -428,11 +428,12 @@ namespace Oxide.Plugins
             CuiHelper.AddUi(player, container);
         }
 
-        private static void AuthorizationUpdate(BasePlayer player, RemoveType removeType, BaseEntity targetEntity, bool canRemove, string reason)
+        private static void AuthorizationUpdate(BasePlayer player, RemoveType removeType, BaseEntity targetEntity, bool shouldPay)
         {
             CuiHelper.DestroyUi(player, UINAME_AUTH);
             if (targetEntity == null) return;
-            string color = canRemove ? configData.uiS.allowedBackgroundColor : configData.uiS.refusedBackgroundColor;
+            string reason = string.Empty;
+            string color = rt.CanRemoveEntity(player, removeType, targetEntity, shouldPay, ref reason) ? configData.uiS.allowedBackgroundColor : configData.uiS.refusedBackgroundColor;
             var container = UI.CreateElementContainer(UINAME_MAIN, UINAME_AUTH, color, configData.uiS.authorizationsAnchorMin, configData.uiS.authorizationsAnchorMax);
             UI.CreateLabel(ref container, UINAME_AUTH, configData.uiS.authorizationsTextColor, reason, configData.uiS.authorizationsTextSize, configData.uiS.authorizationsTextAnchorMin, configData.uiS.authorizationsTextAnchorMax, TextAnchor.MiddleLeft);
             CuiHelper.AddUi(player, container);
@@ -510,14 +511,9 @@ namespace Oxide.Plugins
                 EntityUpdate(player, targetEntity);
                 if (removeType == RemoveType.Normal)
                 {
-                    if (configData.uiS.authorizationEnabled || configData.uiS.priceEnabled || configData.uiS.refundEnabled)
-                    {
-                        string reason = string.Empty;
-                        bool canRemove = targetEntity != null && rt.CanRemoveEntity(player, removeType, targetEntity, pay, ref reason);
-                        if (configData.uiS.authorizationEnabled) AuthorizationUpdate(player, removeType, targetEntity, canRemove, reason);
-                        if (configData.uiS.priceEnabled) PricesUpdate(player, pay, targetEntity, canRemove);
-                        if (configData.uiS.refundEnabled) RefundUpdate(player, refund, targetEntity, canRemove);
-                    }
+                    if (configData.uiS.authorizationEnabled) AuthorizationUpdate(player, removeType, targetEntity, pay);
+                    if (configData.uiS.priceEnabled) PricesUpdate(player, pay, targetEntity);
+                    if (configData.uiS.refundEnabled) RefundUpdate(player, refund, targetEntity);
                 }
                 if (timeLeft-- <= 0)
                     Destroy(this);
