@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.13", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.14", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -223,6 +223,11 @@ namespace Oxide.Plugins
 
         private static string GetEntityName(BaseEntity entity)
         {
+            if (entity is BasePlayer)
+            {
+                var player = entity as BasePlayer;
+                return $"{player.displayName} ({player.ShortPrefabName})";
+            }
             string entityName;
             if (rt.shorPrefabNameToDeployable.TryGetValue(entity.ShortPrefabName, out entityName)) return entityName;
             if (rt.prefabNameToStructure.TryGetValue(entity.PrefabName, out entityName)) return entityName;
@@ -962,6 +967,15 @@ namespace Oxide.Plugins
             }
             if (removeType == RemoveType.Admin)
             {
+                if (targetEntity is BasePlayer)
+                {
+                    var target = targetEntity as BasePlayer;
+                    if (target.userID.IsSteamId() && target.IsConnected)
+                    {
+                        target.Kick("From RemoverTool Plugin");
+                        return true;
+                    }
+                }
                 DoRemove(targetEntity, configData.removeTypeS[RemoveType.Admin].gibs);
                 return true;
             }
@@ -2316,7 +2330,12 @@ namespace Oxide.Plugins
 
         #region LanguageFile
 
-        private void Print(BasePlayer player, string message) => Player.Message(player, message, $"<color={configData.chatS.prefixColor}>{configData.chatS.prefix}</color>", configData.chatS.steamIDIcon);
+        private void Print(BasePlayer player, string message)
+        {
+            if (string.IsNullOrEmpty(configData.chatS.prefix))
+                Player.Message(player, message, string.Empty, configData.chatS.steamIDIcon);
+            else Player.Message(player, message, $"<color={configData.chatS.prefixColor}>{configData.chatS.prefix}</color>", configData.chatS.steamIDIcon);
+        }
 
         private void Print(ConsoleSystem.Arg arg, string message)
         {
