@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.39", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.40", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -122,6 +122,7 @@ namespace Oxide.Plugins
         {
             Initialize();
             UpdateConfig();
+            LoadConfig();
             _removeMode = RemoveMode.None;
             if (_configData.removerMode.noHeldMode)
             {
@@ -3319,6 +3320,7 @@ namespace Oxide.Plugins
                 BuildingGrade.Enum.Twigs, BuildingGrade.Enum.Wood,
                 BuildingGrade.Enum.Stone, BuildingGrade.Enum.Metal, BuildingGrade.Enum.TopTier
             };
+
             foreach (var value in buildingGrades)
             {
                 if (!_configData.remove.validConstruction.ContainsKey(value))
@@ -3338,7 +3340,14 @@ namespace Oxide.Plugins
                     foreach (var value in buildingGrades)
                     {
                         var grade = construction.GetGrade(value, 0);
+
+                        if (grade == null)
+                        {
+                            continue;
+                        }                 
+                        
                         var costToBuild = grade.CostToBuild(value);
+
                         buildingGrade.Add(value, new BuildingGradeSettings
                         {
                             refund = costToBuild.ToDictionary(x => x.itemDef.shortname, y => new CurrencyInfo(Mathf.RoundToInt(y.amount * 0.4f))),
@@ -3350,7 +3359,6 @@ namespace Oxide.Plugins
                 newBuildingBlocks.Add(construction.info.name.english, buildingBlocksSettings);
             }
             _configData.remove.buildingBlock = newBuildingBlocks;
-
             foreach (var entry in _shortPrefabNameToDeployable)
             {
                 EntitySettings entitySettings;
