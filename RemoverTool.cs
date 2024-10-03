@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.41", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.42", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -1162,7 +1162,7 @@ namespace Oxide.Plugins
                         }
                     }
                 }
-                Pool.FreeList(ref hitInfos);
+                Pool.FreeUnmanaged(ref hitInfos);
                 return target;
                 // RaycastHit hitInfo;
                 // if (Physics.Raycast(Player.eyes.HeadRay(), out hitInfo, _distance, LAYER_TARGET))
@@ -1618,7 +1618,7 @@ namespace Oxide.Plugins
                     }
                 }
             }
-            Pool.FreeList(ref decayEntities);
+            Pool.FreeUnmanaged(ref decayEntities);
             return true;
         }
 
@@ -1919,7 +1919,7 @@ namespace Oxide.Plugins
                 {
                     item.Remove();
                 }
-                Pool.FreeList(ref collect);
+                Pool.FreeUnmanaged(ref collect);
             }
             return true;
         }
@@ -2048,7 +2048,7 @@ namespace Oxide.Plugins
                     }
                 }
             }
-            Pool.FreeList(ref list);
+            Pool.FreeUnmanaged(ref list);
             return count;
         }
 
@@ -2096,7 +2096,7 @@ namespace Oxide.Plugins
                     }
                 }
             }
-            Pool.FreeList(ref list);
+            Pool.FreeUnmanaged(ref list);
             return take;
         }
 
@@ -2293,7 +2293,7 @@ namespace Oxide.Plugins
             yield return ProcessContainers(removeList);
             yield return DelayRemove(removeList, player, RemoveType.All);
             removeList.Clear();
-            Pool.Free(ref removeList);
+            Pool.FreeUnmanaged(ref removeList);
             _removeAllCoroutine = null;
         }
 
@@ -2303,7 +2303,7 @@ namespace Oxide.Plugins
             yield return GetNearbyEntities(sourceEntity, removeList, Layers.Mask.Construction, IsExternalWall);
             yield return DelayRemove(removeList, player, RemoveType.External);
             removeList.Clear();
-            Pool.Free(ref removeList);
+            Pool.FreeUnmanaged(ref removeList);
             _removeExternalCoroutine = null;
         }
 
@@ -2313,7 +2313,7 @@ namespace Oxide.Plugins
             yield return ProcessBuilding(sourceEntity, removeList);
             yield return DelayRemove(removeList, player, RemoveType.Structure);
             removeList.Clear();
-            Pool.Free(ref removeList);
+            Pool.FreeUnmanaged(ref removeList);
             _removeStructureCoroutine = null;
         }
 
@@ -2375,7 +2375,7 @@ namespace Oxide.Plugins
             var removed = removeList.Count(x => x != null && !x.IsDestroyed);
             yield return DelayRemove(removeList);
             removeList.Clear();
-            Pool.Free(ref removeList);
+            Pool.FreeUnmanaged(ref removeList);
             Print(arg, $"You have successfully removed {removed} entities of player {targetID}.");
             _removePlayerEntityCoroutine = null;
         }
@@ -2440,8 +2440,8 @@ namespace Oxide.Plugins
                 }
             }
             checkFrom.Clear();
-            Pool.Free(ref checkFrom);
-            Pool.FreeList(ref nearbyEntities);
+            Pool.FreeUnmanaged(ref checkFrom);
+            Pool.FreeUnmanaged(ref nearbyEntities);
         }
 
         private static IEnumerator ProcessContainers(HashSet<BaseEntity> removeList)
@@ -2802,7 +2802,7 @@ namespace Oxide.Plugins
                         stringBuilder.AppendLine(Lang("Syntax4", player.UserIDString, _configData.chat.command, GetRemoveTypeName(RemoveType.External)));
                         Print(player, stringBuilder.ToString());
                         stringBuilder.Clear();
-                        Pool.Free(ref stringBuilder);
+                        Pool.FreeUnmanaged(ref stringBuilder);
                         return;
 
                     default:
@@ -2937,7 +2937,7 @@ namespace Oxide.Plugins
                 stringBuilder.AppendLine("remove.target <external | e> <player (name or id)> [time (seconds)] - Enable remover tool for player (External)");
                 Print(arg, stringBuilder.ToString());
                 stringBuilder.Clear();
-                Pool.Free(ref stringBuilder);
+                Pool.FreeUnmanaged(ref stringBuilder);
                 return;
             }
             var player = arg.Player();
@@ -3004,7 +3004,7 @@ namespace Oxide.Plugins
                     stringBuilder.AppendLine("remove.target <external | e> <player (name or id)> [time (seconds)] - Enable remover tool for player (External)");
                     Print(arg, stringBuilder.ToString());
                     stringBuilder.Clear();
-                    Pool.Free(ref stringBuilder);
+                    Pool.FreeUnmanaged(ref stringBuilder);
                     return;
             }
             var maxRemovable = 0;
@@ -3182,7 +3182,7 @@ namespace Oxide.Plugins
                 stringBuilder.AppendLine("remove.playerentity <cupboard | c> <player id> - Remove buildings of the player owned cupboard");
                 Print(arg, stringBuilder.ToString());
                 stringBuilder.Clear();
-                Pool.Free(ref stringBuilder);
+                Pool.FreeUnmanaged(ref stringBuilder);
                 return;
             }
             if (_removePlayerEntityCoroutine != null)
