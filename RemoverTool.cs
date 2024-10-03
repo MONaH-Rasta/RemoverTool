@@ -13,7 +13,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.7", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr", "4.3.10", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -1121,11 +1121,21 @@ namespace Oxide.Plugins
         {
             if (configData.globalS.useEntityOwners)
             {
-                if (targetEntity.OwnerID == player.userID || AreFriends(targetEntity.OwnerID.ToString(), player.UserIDString))
+                if (targetEntity.OwnerID == player.userID || AreFriends(targetEntity.OwnerID, player.userID))
                 {
                     if (!configData.globalS.useToolCupboards) return true;
                     else if (HasTotalAccess(player, targetEntity)) return true;
                 }
+            }
+            if (configData.globalS.useToolCupboards && HasTotalAccess(player, targetEntity))
+            {
+                if (configData.globalS.useEntityOwners)
+                {
+                    if (targetEntity.OwnerID == player.userID || AreFriends(targetEntity.OwnerID, player.userID))
+                        return true;
+                    return false;
+                }
+                return true;
             }
             if (configData.globalS.useBuildingOwners)
             {
@@ -1141,21 +1151,11 @@ namespace Oxide.Plugins
                     var returnhook = Interface.CallHook("FindBlockData", buildingRef);
                     if (returnhook != null && returnhook is string)
                     {
-                        string ownerID = (string)returnhook;
-                        if (player.UserIDString == ownerID) return true;
-                        if (AreFriends(ownerID, player.UserIDString)) return true;
+                        ulong ownerID = ulong.Parse((string)returnhook);
+                        if (player.userID == ownerID || AreFriends(ownerID, player.userID))
+                            return true;
                     }
                 }
-            }
-            if (configData.globalS.useToolCupboards && HasTotalAccess(player, targetEntity))
-            {
-                if (configData.globalS.useEntityOwners)
-                {
-                    if (targetEntity.OwnerID == player.userID || AreFriends(targetEntity.OwnerID.ToString(), player.UserIDString))
-                        return true;
-                    return false;
-                }
-                return true;
             }
             return false;
         }
@@ -1167,8 +1167,9 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private bool AreFriends(string playerID, string friendID)
+        private bool AreFriends(ulong playerID, ulong friendID)
         {
+            if (!playerID.IsSteamId()) return false;
             if (configData.globalS.useFriends && Friends != null)
             {
                 var r = Friends.CallHook("HasFriend", playerID, friendID);
@@ -1176,18 +1177,23 @@ namespace Oxide.Plugins
             }
             if (configData.globalS.useClans && Clans != null)
             {
-                if (Clans.ResourceId == 842)//Rust:IO Clans
-                {
-                    var playerClan = Clans.Call("GetClanOf", playerID);
-                    var friendClan = Clans.Call("GetClanOf", friendID);
-                    if (playerClan != null && friendClan != null)
-                        return (string)playerClan == (string)friendClan;
-                }
-                else//Clans
-                {
-                    var isMember = Clans.Call("IsClanMember", playerID, friendID);
-                    if (isMember != null && (bool)isMember) return true;
-                }
+                //Clans
+                var isMember = Clans.Call("IsClanMember", playerID.ToString(), friendID.ToString());
+                if (isMember != null) return (bool)isMember;
+                //Rust:IO Clans
+                var playerClan = Clans.Call("GetClanOf", playerID);
+                if (playerClan == null) return false;
+                var friendClan = Clans.Call("GetClanOf", friendID);
+                if (friendClan == null) return false;
+                return (string)playerClan == (string)friendClan;
+            }
+            if (configData.globalS.useTeams && RelationshipManager.TeamsEnabled())
+            {
+                var playerTeam = RelationshipManager.Instance.FindPlayersTeam(playerID);
+                if (playerTeam == null) return false;
+                var friendTeam = RelationshipManager.Instance.FindPlayersTeam(friendID);
+                if (friendTeam == null) return false;
+                return playerTeam == friendTeam;
             }
             return false;
         }
@@ -1786,6 +1792,9 @@ namespace Oxide.Plugins
 
             public class GlobalS
             {
+                [JsonProperty(PropertyName = "Use Teams")]
+                public bool useTeams = false;
+
                 [JsonProperty(PropertyName = "Use Clans")]
                 public bool useClans = true;
 
