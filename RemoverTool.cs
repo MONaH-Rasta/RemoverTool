@@ -11,7 +11,6 @@ using Oxide.Core;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust;
 using Oxide.Game.Rust.Cui;
-using ProtoBuf;
 using Rust;
 using UnityEngine;
 using VLB;
@@ -19,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.42", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.43", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -2037,15 +2036,13 @@ namespace Oxide.Plugins
             {
                 return count;
             }
-            var list = Pool.GetList<Item>();
-            if (player.inventory.AllItemsNoAlloc(ref list) > 0)
+            var list = Pool.Get<List<Item>>();
+            player.inventory.GetAllItems(list);
+            foreach (var item in list)
             {
-                foreach (var item in list)
+                if (item.info.itemid == itemId && !item.IsBusy() && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
                 {
-                    if (item.info.itemid == itemId && !item.IsBusy() && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
-                    {
-                        count += item.amount;
-                    }
+                    count += item.amount;
                 }
             }
             Pool.FreeUnmanaged(ref list);
@@ -2060,38 +2057,35 @@ namespace Oxide.Plugins
                 return take;
             }
             var amount = currencyInfo.Amount;
-            var list = Pool.GetList<Item>();
-            var count = player.inventory.AllItemsNoAlloc(ref list);
-            if (count > 0)
+            var list = Pool.Get<List<Item>>();
+            player.inventory.GetAllItems(list);
+            foreach (var item in list)
             {
-                foreach (var item in list)
+                if (item.info.itemid == itemId && !item.IsBusy() && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
                 {
-                    if (item.info.itemid == itemId && !item.IsBusy() && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
+                    var need = amount - take;
+                    if (need > 0)
                     {
-                        var need = amount - take;
-                        if (need > 0)
+                        if (item.amount > need)
                         {
-                            if (item.amount > need)
-                            {
-                                item.MarkDirty();
-                                item.amount -= need;
-                                take += need;
-                                var newItem = ItemManager.CreateByItemID(itemId, 1, item.skin);
-                                newItem.amount = need;
-                                newItem.CollectedForCrafting(player);
-                                collect?.Add(newItem);
-                                break;
-                            }
-                            if (item.amount <= need)
-                            {
-                                take += item.amount;
-                                item.RemoveFromContainer();
-                                collect?.Add(item);
-                            }
-                            if (take == amount)
-                            {
-                                break;
-                            }
+                            item.MarkDirty();
+                            item.amount -= need;
+                            take += need;
+                            var newItem = ItemManager.CreateByItemID(itemId, 1, item.skin);
+                            newItem.amount = need;
+                            newItem.CollectedForCrafting(player);
+                            collect?.Add(newItem);
+                            break;
+                        }
+                        if (item.amount <= need)
+                        {
+                            take += item.amount;
+                            item.RemoveFromContainer();
+                            collect?.Add(item);
+                        }
+                        if (take == amount)
+                        {
+                            break;
                         }
                     }
                 }
