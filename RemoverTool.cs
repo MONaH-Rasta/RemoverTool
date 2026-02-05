@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.43", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.44", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -3330,6 +3330,9 @@ namespace Oxide.Plugins
             var newBuildingBlocks = new Dictionary<string, BuildingBlocksSettings>();
             foreach (var construction in _constructions)
             {
+                if (newBuildingBlocks.ContainsKey(construction.info.name.english))
+                    continue;
+                
                 BuildingBlocksSettings buildingBlocksSettings;
                 if (!_configData.remove.buildingBlock.TryGetValue(construction.info.name.english, out buildingBlocksSettings))
                 {
@@ -3420,8 +3423,8 @@ namespace Oxide.Plugins
             [JsonProperty(PropertyName = "Image Urls (Used to UI image)")]
             public readonly Dictionary<string, string> imageUrls = new Dictionary<string, string>
             {
-                [ECONOMICS_KEY] = "https://i.imgur.com/znPwdcv.png",
-                [SERVER_REWARDS_KEY] = "https://i.imgur.com/04rJsV3.png"
+                [ECONOMICS_KEY] = "https://cdn3.mapstr.gg/f4abf259cd314a67a8e0c12cf86e9b50.png",
+                [SERVER_REWARDS_KEY] = "https://cdn3.mapstr.gg/e189bdf530cdc149a99fe711e3ba7531.png"
             };
 
             [JsonProperty(PropertyName = "GUI")]
@@ -3863,7 +3866,7 @@ namespace Oxide.Plugins
             public bool showCrosshair = true;
 
             [JsonProperty(PropertyName = "Crosshair - Image Url")]
-            public string crosshairImageUrl = "https://i.imgur.com/SqLCJaQ.png";
+            public string crosshairImageUrl = "https://cdn3.mapstr.gg/23b32dce14edec41b849a7e729e4b3ca.png";
 
             [JsonProperty(PropertyName = "Crosshair - Box - Min Anchor (in Rust Window)")]
             public string crosshairAnchorMin = "0.5 0.5";
