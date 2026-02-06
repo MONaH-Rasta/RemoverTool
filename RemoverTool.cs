@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.44", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.45", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -407,6 +407,11 @@ namespace Oxide.Plugins
             var buildingBlock = entity as BuildingBlock;
             if (buildingBlock != null)
             {
+                if (buildingBlock is BoatBuildingBlock)
+                {
+                    return false;
+                }
+                
                 bool valid;
                 if (_configData.remove.validConstruction.TryGetValue(buildingBlock.grade, out valid) && valid)
                 {
