@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.46", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.47", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -2917,7 +2917,7 @@ namespace Oxide.Plugins
                 Print(arg, "Syntax error!!! Please type the commands in the F1 console");
                 return;
             }
-            CmdRemove(player, null, arg.Args);
+            CmdRemove(player, null, arg.Args.Select(x => (string)x).ToArray()); // Really shit
         }
 
         [ConsoleCommand("remove.target")]
@@ -2945,14 +2945,14 @@ namespace Oxide.Plugins
                 Print(arg, Lang("NotAllowed", player.UserIDString, PERMISSION_TARGET));
                 return;
             }
-            var target = RustCore.FindPlayer(arg.Args[1]);
+            var target = RustCore.FindPlayer(arg.Args[1].ToString());
             if (target == null || !target.IsConnected)
             {
                 Print(arg, target == null ? $"'{arg.Args[0]}' cannot be found." : $"'{target}' is offline.");
                 return;
             }
             var removeType = RemoveType.Normal;
-            switch (arg.Args[0].ToLower())
+            switch (arg.Args[0].ToString().ToLower())
             {
                 case "n":
                 case "normal":
@@ -3010,11 +3010,11 @@ namespace Oxide.Plugins
             var time = _configData.removeType[removeType].defaultTime;
             if (arg.Args.Length > 2)
             {
-                int.TryParse(arg.Args[2], out time);
+                int.TryParse(arg.Args[2].ToString(), out time);
             }
             if (arg.Args.Length > 3 && removeType == RemoveType.Normal)
             {
-                int.TryParse(arg.Args[3], out maxRemovable);
+                int.TryParse(arg.Args[3].ToString(), out maxRemovable);
             }
             var permissionS = _configData.permission[PERMISSION_NORMAL];
             var targetRemover = target.GetOrAddComponent<ToolRemover>();
@@ -3031,10 +3031,10 @@ namespace Oxide.Plugins
                 return;
             }
             float value;
-            switch (arg.Args[0].ToLower())
+            switch (arg.Args[0].ToString().ToLower())
             {
                 case "price":
-                    if (!float.TryParse(arg.Args[1], out value))
+                    if (!float.TryParse(arg.Args[1].ToString(), out value))
                     {
                         value = 50f;
                     }
@@ -3057,7 +3057,7 @@ namespace Oxide.Plugins
                     return;
 
                 case "refund":
-                    if (!float.TryParse(arg.Args[1], out value))
+                    if (!float.TryParse(arg.Args[1].ToString(), out value))
                     {
                         value = 40f;
                     }
@@ -3080,7 +3080,7 @@ namespace Oxide.Plugins
                     return;
 
                 case "pricep":
-                    if (!float.TryParse(arg.Args[1], out value))
+                    if (!float.TryParse(arg.Args[1].ToString(), out value))
                     {
                         value = 40f;
                     }
@@ -3098,7 +3098,7 @@ namespace Oxide.Plugins
                     return;
 
                 case "refundp":
-                    if (!float.TryParse(arg.Args[1], out value))
+                    if (!float.TryParse(arg.Args[1].ToString(), out value))
                     {
                         value = 50f;
                     }
@@ -3135,7 +3135,7 @@ namespace Oxide.Plugins
                 Print(arg, Lang("NotAllowed", player.UserIDString, PERMISSION_OVERRIDE));
                 return;
             }
-            switch (arg.Args[0].ToLower())
+            switch (arg.Args[0].ToString().ToLower())
             {
                 case "true":
                 case "1":
@@ -3190,13 +3190,13 @@ namespace Oxide.Plugins
                 return;
             }
             ulong targetID;
-            if (!ulong.TryParse(arg.Args[1], out targetID) || !targetID.IsSteamId())
+            if (!ulong.TryParse(arg.Args[1].ToString(), out targetID) || !targetID.IsSteamId())
             {
                 Print(arg, "Please enter the player's steamID.");
                 return;
             }
             PlayerEntityRemoveType playerEntityRemoveType;
-            switch (arg.Args[0].ToLower())
+            switch (arg.Args[0].ToString().ToLower())
             {
                 case "a":
                 case "all":
