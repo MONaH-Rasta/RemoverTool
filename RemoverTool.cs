@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.47", ResourceId = 651)]
+    [Info("Remover Tool", "Reneb/Fuji/Arainrr/Tryhard", "4.3.48", ResourceId = 651)]
     [Description("Building and entity removal tool")]
     public class RemoverTool : RustPlugin
     {
@@ -2045,7 +2045,7 @@ namespace Oxide.Plugins
             player.inventory.GetAllItems(list);
             foreach (var item in list)
             {
-                if (item.info.itemid == itemId && !item.IsBusy() && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
+                if (item.info.itemid == itemId && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
                 {
                     count += item.amount;
                 }
@@ -2066,7 +2066,7 @@ namespace Oxide.Plugins
             player.inventory.GetAllItems(list);
             foreach (var item in list)
             {
-                if (item.info.itemid == itemId && !item.IsBusy() && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
+                if (item.info.itemid == itemId && (currencyInfo.SkinId < 0 || item.skin == (ulong)currencyInfo.SkinId))
                 {
                     var need = amount - take;
                     if (need > 0)
